@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Mail, Lock, LogIn, AlertCircle } from 'lucide-react';
 import { useDispatch } from 'react-redux';
 import { setCredentials } from '@/redux/slices/authSlice';
+import api from '@/services/api';
 
 // API URL
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3500/api';
@@ -29,33 +30,11 @@ export default function Login() {
     try {
       console.log('Attempting login with API for:', email);
       
-      // Make a real API call to the backend
-      const response = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email, password }),
-      });
-
-      // For debugging
-      console.log('Login response status:', response.status);
+      // Use the configured API client instead of fetch
+      const response = await api.post('/auth/login', { email, password });
       
-      const responseText = await response.text();
-      console.log('Response text:', responseText);
-      
-      // Check if response is valid JSON
-      let data;
-      try {
-        data = JSON.parse(responseText);
-      } catch (e) {
-        console.error('Failed to parse response as JSON:', e);
-        throw new Error('Server response is not valid JSON');
-      }
-      
-      if (!response.ok) {
-        throw new Error(data.message || 'Login failed');
-      }
+      // API client automatically parses JSON
+      const data = response.data;
       
       // Extract user data and token
       const { user, token } = data;
