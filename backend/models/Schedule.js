@@ -39,6 +39,10 @@ const scheduleSchema = new Schema({
     required: [true, 'Bitiş saati vacibdir'],
     match: [/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, 'Geçerli bir saat formatı giriniz (HH:MM)']
   },
+  subject: {
+    type: String,
+    required: [true, 'Dərs mövzusu vacibdir']
+  },
 
   // Audit fields
   createdAt: {

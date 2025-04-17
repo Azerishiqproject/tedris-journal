@@ -182,6 +182,22 @@ const scheduleToLesson = (schedule: Schedule): Lesson => {
   };
 };
 
+// Add 10 minutes to time string (HH:MM format)
+const addMinutesToTime = (timeStr: string, minutesToAdd: number): string => {
+  const [hours, minutes] = timeStr.split(':').map(Number);
+  let totalMinutes = hours * 60 + minutes + minutesToAdd;
+  
+  // Handle overflow to next day
+  if (totalMinutes >= 24 * 60) {
+    totalMinutes = totalMinutes % (24 * 60);
+  }
+  
+  const newHours = Math.floor(totalMinutes / 60);
+  const newMinutes = totalMinutes % 60;
+  
+  return `${newHours.toString().padStart(2, '0')}:${newMinutes.toString().padStart(2, '0')}`;
+};
+
 export default function SchedulePage() {
   const router = useRouter();
   const dispatch = useAppDispatch();
@@ -599,7 +615,98 @@ export default function SchedulePage() {
     return isDateInWeek(schedule.date, weekDates);
   }).map(scheduleToLesson);
 
-
+  // Handle duplicate lesson işlevini güncelliyorum
+  const handleDuplicateLesson = async (lesson: Lesson, e: React.MouseEvent) => {
+    // Stop event from propagating to parent elements
+    e.stopPropagation();
+    
+    try {
+      // Dersin tam verilerini Redux store'dan al
+      const originalSchedule = schedules.find(s => s.id === lesson.id);
+      
+      if (!originalSchedule) {
+        showSnackbar('Kopyalanacak ders bulunamadı. Lütfen sayfayı yenileyip tekrar deneyin.', 'error');
+        return;
+      }
+      
+      // Dersin süresini hesapla
+      const startMinutes = timeToMinutes(originalSchedule.startTime);
+      const endMinutes = timeToMinutes(originalSchedule.endTime);
+      const lessonDuration = endMinutes - startMinutes;
+      
+      // Yeni başlangıç saati (orijinal dersin bitiş saatinden 10 dakika sonra)
+      const newStartTime = addMinutesToTime(originalSchedule.endTime, 10);
+      
+      // Yeni bitiş saati (yeni başlangıç + orijinal süre)
+      const newStartMinutes = timeToMinutes(newStartTime);
+      const newEndMinutes = newStartMinutes + lessonDuration;
+      const newEndTime = `${Math.floor(newEndMinutes / 60).toString().padStart(2, '0')}:${(newEndMinutes % 60).toString().padStart(2, '0')}`;
+      
+      console.log(`Original lesson: ${originalSchedule.startTime}-${originalSchedule.endTime}, duration: ${lessonDuration} minutes`);
+      console.log(`New lesson: ${newStartTime}-${newEndTime}, starts 10 minutes after original lesson ends`);
+      
+      // Backend'in beklediği tüm alanları içeren veri objesi oluştur
+      const newScheduleData = {
+        courseId: originalSchedule.courseId,
+        teacherId: originalSchedule.teacherId,
+        locationId: originalSchedule.locationId,
+        courseTypeId: originalSchedule.courseTypeId,
+        date: formatDateForAPI(new Date(originalSchedule.date)),
+        startTime: newStartTime,
+        endTime: newEndTime,
+        subject: originalSchedule.subject || 'Dublicate: ' + (originalSchedule.subject || '')
+      };
+      
+      // Tüm gerekli alanların dolu olduğunu kontrol et
+      const missingFields: string[] = [];
+      Object.entries(newScheduleData).forEach(([key, value]) => {
+        if (!value && key !== 'excludeLessonId') missingFields.push(key);
+      });
+      
+      if (missingFields.length > 0) {
+        console.error('Missing fields for duplicate lesson:', missingFields);
+        showSnackbar(`Bazı alanlar eksik: ${missingFields.join(', ')}`, 'error');
+        return;
+      }
+      
+      console.log('Duplicating lesson with data:', newScheduleData);
+      
+      // First check for teacher conflicts with the new time
+      const conflictParams = {
+        teacherId: newScheduleData.teacherId,
+        date: newScheduleData.date,
+        startTime: newScheduleData.startTime,
+        endTime: newScheduleData.endTime
+      };
+      
+      const conflictResult = await dispatch(checkTeacherConflict(conflictParams)).unwrap();
+      
+      if (conflictResult.hasConflict) {
+        showSnackbar(conflictResult.message || "Yeni zaman için çakışma tespit edildi.", 'error');
+        return;
+      }
+      
+      // If no conflicts, create the new schedule
+      const result = await dispatch(createSchedule(newScheduleData)).unwrap();
+      console.log('Duplicate created successfully:', result);
+      
+      // Refresh the schedule data
+      dispatch(fetchSchedules(dateParams));
+      
+      // Show success message
+      showSnackbar('Dərs uğurla kopyalandı ve önceki dersin bitiminden 10 dəqiqə sonraya yerləşdirildi', 'success');
+    } catch (error: unknown) {
+      console.error('Duplicate lesson error:', error);
+      
+      if (error instanceof Error) {
+        showSnackbar(error.message, 'error');
+      } else if (typeof error === 'string') {
+        showSnackbar(error, 'error');
+      } else {
+        showSnackbar('Dərs kopyalanırken xəta baş verdi', 'error');
+      }
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -1210,7 +1317,21 @@ export default function SchedulePage() {
                           }}
                           onClick={() => handleLessonClick(lesson)}
                         >
-                          <div className="overflow-hidden text-xs">
+                          <div className="relative overflow-hidden text-xs">
+                            {/* Duplicate button */}
+                            <button 
+                              className="absolute right-0 top-0 bg-white rounded-full p-1 shadow-sm hover:bg-blue-100 transition-colors"
+                              onClick={(e) => handleDuplicateLesson(lesson, e)}
+                              title="Dərsi kopyala (bitişindən 10 dəqiqə sonra)"
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" 
+                                stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" 
+                                className="text-blue-600">
+                                <rect x="8" y="8" width="12" height="12" rx="2" ry="2"></rect>
+                                <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path>
+                              </svg>
+                            </button>
+                            
                             <div className="font-bold truncate">{lesson.courseName}</div>
                             <div className="truncate font-medium">
                               {(() => {
