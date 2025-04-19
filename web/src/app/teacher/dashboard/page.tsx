@@ -1,13 +1,12 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { User as UserIcon, Calendar, MapPin, Clock, BookOpen, GraduationCap, Mail, ChevronLeft, ChevronRight, Loader, Download, FileText } from 'lucide-react';
+import { User as UserIcon, Calendar, MapPin, Clock, BookOpen, GraduationCap, Mail, ChevronLeft, ChevronRight, Loader, Download } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useAppSelector, useAppDispatch } from '@/redux/hooks';
 import { fetchSchedules } from '@/redux/slices/scheduleSlice';
 import { fetchLocations } from '@/redux/slices/locationSlice';
 import { fetchCourseTypes } from '@/redux/slices/courseTypeSlice';
-import { fetchSeasons } from '@/redux/slices/seasonSlice';
 import { logout } from '@/redux/slices/authSlice';
 import api from '@/services/api';
 import { Schedule } from '@/redux/types';
@@ -218,7 +217,7 @@ export default function TeacherDashboard() {
   const [lessonUpdateLoading, setLessonUpdateLoading] = useState(false);
   const [selectedSeason, setSelectedSeason] = useState<string>('');
   const [showSignatureExport, setShowSignatureExport] = useState(false);
-  const [seasons, setSeasons] = useState<any[]>([]);
+  const [seasons, setSeasons] = useState<{ id: string; _id?: string; name: string; isActive: boolean }[]>([]);
   const [loadingSeasons, setLoadingSeasons] = useState(false);
   const [snackbar, setSnackbar] = useState<{
     open: boolean;
@@ -479,7 +478,7 @@ export default function TeacherDashboard() {
           const response = await api.get('/seasons');
           if (response.data && response.data.seasons) {
             // Only get active seasons
-            const activeSeasons = response.data.seasons.filter((season: any) => season.isActive);
+            const activeSeasons = response.data.seasons.filter((season: { id: string; _id?: string; name: string; isActive: boolean }) => season.isActive);
             setSeasons(activeSeasons);
           }
           setLoadingSeasons(false);
