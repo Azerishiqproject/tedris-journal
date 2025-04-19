@@ -1,15 +1,17 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { User as UserIcon, Calendar, MapPin, Clock, BookOpen, GraduationCap, Mail, ChevronLeft, ChevronRight, Loader } from 'lucide-react';
+import { User as UserIcon, Calendar, MapPin, Clock, BookOpen, GraduationCap, Mail, ChevronLeft, ChevronRight, Loader, Download, FileText } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useAppSelector, useAppDispatch } from '@/redux/hooks';
 import { fetchSchedules } from '@/redux/slices/scheduleSlice';
 import { fetchLocations } from '@/redux/slices/locationSlice';
 import { fetchCourseTypes } from '@/redux/slices/courseTypeSlice';
+import { fetchSeasons } from '@/redux/slices/seasonSlice';
 import { logout } from '@/redux/slices/authSlice';
 import api from '@/services/api';
 import { Schedule } from '@/redux/types';
+import * as XLSX from 'xlsx';
 
 
 
@@ -214,6 +216,10 @@ export default function TeacherDashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [completedLessons, setCompletedLessons] = useState<Set<string>>(new Set());
   const [lessonUpdateLoading, setLessonUpdateLoading] = useState(false);
+  const [selectedSeason, setSelectedSeason] = useState<string>('');
+  const [showSignatureExport, setShowSignatureExport] = useState(false);
+  const [seasons, setSeasons] = useState<any[]>([]);
+  const [loadingSeasons, setLoadingSeasons] = useState(false);
   const [snackbar, setSnackbar] = useState<{
     open: boolean;
     message: string;
@@ -325,7 +331,7 @@ export default function TeacherDashboard() {
   }, [user, isAuthenticated, router]);
   
   // Get current week dates starting from the current week
-  const getCurrentWeekDates = () => {
+  const getCurrentWeekDates = useMemo(() => {
     // Use current date to get current week
     const today = new Date();
     
@@ -344,17 +350,15 @@ export default function TeacherDashboard() {
       date.setDate(startOfWeek.getDate() + i);
       return date;
     });
-  };
-  
-  const weekDates = getCurrentWeekDates();
+  }, [currentWeekOffset]);
   
   // Get the start and end date strings for API
   const weekDateParams = useMemo(() => {
     return {
-      startDate: formatDateForAPI(weekDates[0]),
-      endDate: formatDateForAPI(weekDates[6])
+      startDate: formatDateForAPI(getCurrentWeekDates[0]),
+      endDate: formatDateForAPI(getCurrentWeekDates[getCurrentWeekDates.length - 1])
     };
-  }, [currentWeekOffset, weekDates]);
+  }, [getCurrentWeekDates]);
   
   // Get current month date range for monthly stats
   const monthDateParams = useMemo(() => {
@@ -465,6 +469,30 @@ export default function TeacherDashboard() {
     }
   }, [user, isAuthenticated]);
   
+  // Load seasons for the export functionality
+  useEffect(() => {
+    if (user && user.role === 'teacher' && isAuthenticated) {
+      setLoadingSeasons(true);
+      
+      const loadSeasons = async () => {
+        try {
+          const response = await api.get('/seasons');
+          if (response.data && response.data.seasons) {
+            // Only get active seasons
+            const activeSeasons = response.data.seasons.filter((season: any) => season.isActive);
+            setSeasons(activeSeasons);
+          }
+          setLoadingSeasons(false);
+        } catch (error) {
+          console.error('Error loading seasons:', error);
+          setLoadingSeasons(false);
+        }
+      };
+      
+      loadSeasons();
+    }
+  }, [user, isAuthenticated]);
+  
   // Format date for display with year
   const formatDate = (date: Date) => {
     return date.toLocaleDateString('tr-TR', { day: 'numeric', month: 'numeric', year: 'numeric' });
@@ -502,9 +530,11 @@ export default function TeacherDashboard() {
   };
   
   // Filter teacher's lessons - we only get lessons for the current week now
-  const teacherLessons = schedules.filter(lesson => 
-    isTeacherMatch(lesson.teacherId, user)
-  );
+  const teacherLessons = useMemo(() => {
+    return schedules.filter(lesson => 
+      isTeacherMatch(lesson.teacherId, user)
+    );
+  }, [schedules, user]);
   
   // Since we're already fetching weekly data, we can use teacherLessons as currentWeekLessons
   const currentWeekLessons = teacherLessons;
@@ -617,13 +647,222 @@ export default function TeacherDashboard() {
       console.error('Error updating lesson completion status:', error);
       // Show more detailed error message
       let errorMessage = 'Dərs statusu yenilənərkən xəta baş verdi.';
-      if (error && typeof error === 'object' && 'response' in error && error.response && typeof error.response === 'object' && 'data' in error.response) {
-        const responseData = error.response.data as { message?: string };
-        errorMessage = responseData.message || errorMessage;
+      if (error && typeof error === 'object' && 'response' in error) {
+        const responseData = error.response && typeof error.response === 'object' && 'data' in error.response 
+          ? error.response.data as { message?: string }
+          : null;
+        if (responseData && responseData.message) {
+          errorMessage = responseData.message;
+        }
       }
       showSnackbar(errorMessage, 'error');
     } finally {
       setLessonUpdateLoading(false);
+    }
+  };
+
+  // Export teacher signature sheet - similar to admin dashboard but for current teacher only
+  const exportTeacherSignatureSheet = async () => {
+    if (!selectedSeason || !user) {
+      showSnackbar("İxrac üçün kurs seçilməlidir", "error");
+      return;
+    }
+    
+    try {
+      // Set loading state
+      setIsLoading(true);
+      showSnackbar("İmza vərəqi hazırlanır...", "success");
+      
+      // Find the selected season
+      const season = seasons.find(s => s.id === selectedSeason || s._id === selectedSeason);
+      
+      if (!season) {
+        showSnackbar("Seçilmiş kurs tapılmadı", "error");
+        setIsLoading(false);
+        return;
+      }
+      
+      // Get teacher ID
+      const teacherId = user.id || (user as User)._id;
+      
+      if (!teacherId) {
+        showSnackbar("Müəllim məlumatları tapılmadı", "error");
+        setIsLoading(false);
+        return;
+      }
+      
+      // Fetch all lessons for this season and teacher directly from API
+      let teacherLessons: Lesson[] = [];
+      
+      try {
+        // Fetch all lessons for this season - no date filtering
+        const response = await api.get<{ schedules: Lesson[] }>(`/schedules?seasonId=${selectedSeason}`);
+        
+        if (response.data && response.data.schedules) {
+          // Filter for the current teacher only
+          teacherLessons = response.data.schedules.filter(lesson => 
+            isTeacherMatch(lesson.teacherId, user)
+          );
+          
+          console.log(`Found ${teacherLessons.length} lessons for teacher in season ${season.name}`);
+        }
+      } catch (error) {
+        console.error('Error fetching lessons for export:', error);
+        showSnackbar("Dərs məlumatları əldə edilərkən xəta baş verdi", "error");
+        setIsLoading(false);
+        return;
+      }
+      
+      if (teacherLessons.length === 0) {
+        showSnackbar("Seçilmiş kurs üçün dərs tapılmadı", "error");
+        setIsLoading(false);
+        return;
+      }
+      
+      // Sort by date
+      teacherLessons.sort((a, b) => {
+        const dateA = new Date(a.date);
+        const dateB = new Date(b.date);
+        if (dateA.getTime() !== dateB.getTime()) {
+          return dateA.getTime() - dateB.getTime();
+        }
+        return a.startTime.localeCompare(b.startTime);
+      });
+      
+      // Create a new workbook and worksheet
+      const workbook = XLSX.utils.book_new();
+      const ws = XLSX.utils.aoa_to_sheet([]);
+      
+      // Teacher and course title
+      const teacherName = `${user.firstName || ''} ${user.lastName || ''}`.trim();
+      const titleRow = [`Müəllim: ${teacherName}`];
+      const courseRow = [`Kurs: ${season.name}`];
+      
+      // Header row
+      const headerRow = ['Tarix', 'Dərs adı', 'İmza'];
+      
+      // Add rows to worksheet
+      XLSX.utils.sheet_add_aoa(ws, [titleRow], { origin: 'A1' });
+      XLSX.utils.sheet_add_aoa(ws, [courseRow], { origin: 'A2' });
+      XLSX.utils.sheet_add_aoa(ws, [headerRow], { origin: 'A4' });
+      
+      // Apply styles to header row - bold and light gray background
+      for (let col = 0; col < 3; col++) {
+        const cellRef = XLSX.utils.encode_cell({r: 3, c: col}); // 4th row (0-indexed)
+        if (!ws[cellRef]) ws[cellRef] = { t: 's', v: headerRow[col] };
+        
+        if (!ws[cellRef].s) ws[cellRef].s = {};
+        
+        // Bold text
+        ws[cellRef].s.font = { bold: true };
+        
+        // Light gray background
+        ws[cellRef].s.fill = { 
+          fgColor: { rgb: "EEEEEE" }, 
+          patternType: "solid"
+        };
+        
+        // Borders
+        ws[cellRef].s.border = {
+          top: { style: 'thin', color: { rgb: "000000" } },
+          bottom: { style: 'thin', color: { rgb: "000000" } },
+          left: { style: 'thin', color: { rgb: "000000" } },
+          right: { style: 'thin', color: { rgb: "000000" } }
+        };
+      }
+      
+      // Group lessons by date
+      const lessonsByDate: Record<string, typeof teacherLessons> = {};
+      teacherLessons.forEach(lesson => {
+        const dateStr = new Date(lesson.date).toISOString().split('T')[0];
+        if (!lessonsByDate[dateStr]) {
+          lessonsByDate[dateStr] = [];
+        }
+        lessonsByDate[dateStr].push(lesson);
+      });
+      
+      // Merge cells array
+      const merges: { s: { r: number, c: number }, e: { r: number, c: number } }[] = [
+        { s: { r: 0, c: 0 }, e: { r: 0, c: 2 } }, // Teacher name
+        { s: { r: 1, c: 0 }, e: { r: 1, c: 2 } }  // Course name
+      ];
+      
+      // Add data rows
+      let rowIndex = 5; // Start at row 5 (after headers)
+      
+      // Process each date group
+      Object.entries(lessonsByDate).forEach(([dateStr, lessons]) => {
+        const date = new Date(dateStr);
+        // Format date as DD.MM.YYYY
+        const formattedDate = `${String(date.getDate()).padStart(2, '0')}.${String(date.getMonth() + 1).padStart(2, '0')}.${date.getFullYear()}`;
+        
+        // Record the starting row for this date group (for merging)
+        const dateStartRow = rowIndex;
+        
+        // Add each lesson for this date
+        lessons.forEach((lesson, index) => {
+          // Create the lesson row
+          const lessonRow = [
+            index === 0 ? formattedDate : '', // Only show date on first lesson of the day
+            lesson.subject || '',
+            '' // Empty cell for signature
+          ];
+          
+          XLSX.utils.sheet_add_aoa(ws, [lessonRow], { origin: `A${rowIndex}` });
+          
+          // Apply borders to all cells in the row
+          for (let col = 0; col < 3; col++) {
+            const cellRef = XLSX.utils.encode_cell({r: rowIndex-1, c: col});
+            if (!ws[cellRef]) ws[cellRef] = { t: 's', v: '' };
+            
+            if (!ws[cellRef].s) ws[cellRef].s = {};
+            
+            // Add borders to all cells
+            ws[cellRef].s.border = {
+              top: { style: 'thin', color: { rgb: "000000" } },
+              bottom: { style: 'thin', color: { rgb: "000000" } },
+              left: { style: 'thin', color: { rgb: "000000" } },
+              right: { style: 'thin', color: { rgb: "000000" } }
+            };
+          }
+          
+          rowIndex++;
+        });
+        
+        // Merge date cells if there are multiple lessons for this date
+        if (lessons.length > 1) {
+          merges.push({
+            s: { r: dateStartRow - 1, c: 0 }, // Start cell (0-indexed)
+            e: { r: rowIndex - 2, c: 0 }      // End cell (rowIndex-2 because rowIndex was incremented after the last lesson)
+          });
+        }
+      });
+      
+      // Set column widths
+      ws['!cols'] = [
+        { wch: 15 }, // Date
+        { wch: 50 }, // Subject
+        { wch: 20 }  // Signature
+      ];
+      
+      // Add merges to worksheet
+      ws['!merges'] = merges;
+      
+      // Add the worksheet to the workbook
+      XLSX.utils.book_append_sheet(workbook, ws, 'İmza Vərəqi');
+      
+      // Create the Excel file
+      const teacherNameClean = teacherName.replace(/\s+/g, '_').replace(/[^\w\s]/gi, '');
+      const seasonNameClean = season.name.replace(/\s+/g, '_').replace(/[^\w\s]/gi, '');
+      XLSX.writeFile(workbook, `${teacherNameClean}_${seasonNameClean}_imza_veraqi.xlsx`);
+      
+      console.log(`Teacher signature sheet exported successfully for ${teacherName} - ${season.name}`);
+      showSnackbar(`"${season.name}" kursu imza vərəqi uğurla ixrac edildi`);
+    } catch (error) {
+      console.error('Export error:', error);
+      showSnackbar("İmza vərəqi ixrac edilərkən xəta baş verdi", 'error');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -735,7 +974,66 @@ export default function TeacherDashboard() {
         </div>
       </div>
       
-     
+      {/* Teacher Signature Export Section */}
+      <div className="bg-white rounded-lg shadow p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold text-gray-800">İmza Vərəqi Yükləmə</h2>
+          <button 
+            onClick={() => setShowSignatureExport(prev => !prev)}
+            className="text-blue-600 hover:text-blue-800 flex items-center gap-1 text-sm"
+          >
+            {showSignatureExport ? 'Gizlət' : 'Göstər'} 
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform ${showSignatureExport ? 'rotate-180' : ''}`}>
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </button>
+        </div>
+        
+        {showSignatureExport && (
+          <div className="flex flex-col gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Kursu Seçin</label>
+              <select
+                value={selectedSeason}
+                onChange={(e) => setSelectedSeason(e.target.value)}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-700 focus:border-blue-500 focus:outline-none"
+                disabled={loadingSeasons || seasons.length === 0}
+              >
+                <option value="">Kurs seçin</option>
+                {seasons.map((season) => (
+                  <option key={season.id || season._id} value={season.id || season._id}>
+                    {season.name}
+                  </option>
+                ))}
+              </select>
+              {loadingSeasons && (
+                <div className="flex items-center mt-1 text-sm text-gray-500">
+                  <Loader size={14} className="animate-spin mr-2" />
+                  <span>Kurslar yüklənir...</span>
+                </div>
+              )}
+            </div>
+            
+            <button 
+              onClick={exportTeacherSignatureSheet}
+              className="flex items-center justify-center gap-2 bg-teal-600 text-white px-4 py-2 rounded-lg hover:bg-teal-700 transition-colors"
+              disabled={isLoading || !selectedSeason}
+            >
+              {isLoading ? (
+                <>
+                  <Loader size={18} className="animate-spin" />
+                  <span>Hazırlanır...</span>
+                </>
+              ) : (
+                <>
+                  <Download size={18} />
+                  <span>İmza Vərəqini Yüklə</span>
+                </>
+              )}
+            </button>
+          </div>
+        )}
+      </div>
       
       {/* Teacher Leaves Section */}
       <div className="bg-white rounded-lg shadow p-6">
@@ -824,7 +1122,7 @@ export default function TeacherDashboard() {
         
         <div className="text-center">
           <h3 className="font-medium text-gray-800">
-            {formatDate(weekDates[0])} - {formatDate(weekDates[weekDates.length - 1])}
+            {formatDate(getCurrentWeekDates[0])} - {formatDate(getCurrentWeekDates[getCurrentWeekDates.length - 1])}
           </h3>
           <div className="flex justify-center gap-4 mt-1">
             {currentWeekOffset !== 0 && (
@@ -878,7 +1176,7 @@ export default function TeacherDashboard() {
           
           {/* Days and schedule */}
           <div className="relative">
-            {weekDates.map((date, dateIndex) => {
+            {getCurrentWeekDates.map((date, dateIndex) => {
               const dayOfWeek = date.getDay();
               const fullDate = formatDate(date);
               const dateString = formatDateForAPI(date);
@@ -1108,8 +1406,8 @@ export default function TeacherDashboard() {
               <div className="flex justify-between items-center px-2">
                 <div className="flex items-center">
                   {completedLessons.has(selectedLesson.id) ? (
-                    <div className="flex items-center text-green-600">
-                      <div className="bg-green-100 p-1 rounded-full mr-2">
+                    <div className="flex items-center text-green-600 z-10">
+                      <div className="bg-green-100 p-1 rounded-full mr-2 z-10">
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                           <polyline points="20 6 9 17 4 12"></polyline>
                         </svg>
@@ -1117,7 +1415,7 @@ export default function TeacherDashboard() {
                       <span className="text-sm font-medium">Tamamlanan dərs</span>
                     </div>
                   ) : (
-                    <div className="flex items-center text-gray-500">
+                    <div className="flex items-center text-gray-500 z-10">
                       <div className="bg-gray-100 p-1 rounded-full mr-2">
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                           <circle cx="12" cy="12" r="10"></circle>
