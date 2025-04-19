@@ -372,7 +372,7 @@ export default function UsersPage() {
               
               <div>
                 <label htmlFor="specialty" className="block text-sm font-medium text-gray-700">
-                  Uzmanlık
+                  İxtisas
                 </label>
                 <input
                   type="text"
@@ -387,7 +387,7 @@ export default function UsersPage() {
               
               <div>
                 <label htmlFor="academicDegree" className="block text-sm font-medium text-gray-700">
-                  Akademik Derece
+                  Akademik Dərəcə
                 </label>
                 <input
                   type="text"

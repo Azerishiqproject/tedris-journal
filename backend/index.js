@@ -40,20 +40,20 @@ app.get('/', (req, res) => {
 // Import routes
 const authRoutes = require('./routes/auth');
 const teacherRoutes = require('./routes/teachers');
-const courseRoutes = require('./routes/courses');
 const courseTypeRoutes = require('./routes/courseTypes');
 const locationRoutes = require('./routes/locations');
 const scheduleRoutes = require('./routes/schedules');
 const leaveRoutes = require('./routes/leaves');
+const seasonRoutes = require('./routes/seasons');
 
 // Use routes
 app.use('/api/auth', authRoutes);
 app.use('/api/teachers', teacherRoutes);
-app.use('/api/courses', courseRoutes);
 app.use('/api/course-types', courseTypeRoutes);
 app.use('/api/locations', locationRoutes);
 app.use('/api/schedules', scheduleRoutes);
 app.use('/api/leaves', leaveRoutes);
+app.use('/api/seasons', seasonRoutes);
 
 // Error handling middleware
 app.use((err, req, res) => {

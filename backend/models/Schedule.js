@@ -3,11 +3,6 @@ const Schema = mongoose.Schema;
 
 const scheduleSchema = new Schema({
   // İlişkiler
-  courseId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Course',
-    required: [true, 'Dərs seçimi vacibdir']
-  },
   teacherId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
@@ -22,6 +17,11 @@ const scheduleSchema = new Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'CourseType',
     required: [true, 'Dərs tipi seçimi vacibdir']
+  },
+  seasonId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Season',
+    required: false
   },
 
   // Zaman ve içerik bilgileri
@@ -42,6 +42,12 @@ const scheduleSchema = new Schema({
   subject: {
     type: String,
     required: [true, 'Dərs mövzusu vacibdir']
+  },
+
+  // Ders kontrol durumu
+  isChecked: {
+    type: Boolean,
+    default: false
   },
 
   // Audit fields

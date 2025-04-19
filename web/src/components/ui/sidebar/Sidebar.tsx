@@ -5,12 +5,12 @@ import { usePathname } from 'next/navigation';
 import { 
   LayoutDashboard, 
   Users, 
-  BookOpen, 
   MapPin, 
   Calendar, 
   LogOut,
   Tag,
-  Briefcase
+  Briefcase,
+  CalendarRange
 } from 'lucide-react';
 import { useAppDispatch } from '@/redux/hooks';
 import { logout } from '@/redux/slices/authSlice';
@@ -46,17 +46,12 @@ export default function Sidebar() {
     {
       href: '/admin/dashboard',
       icon: <LayoutDashboard size={18} />,
-      label: 'Dashboard',
+      label: 'Ümumi məlumatlar',
     },
     {
       href: '/admin/users',
       icon: <Users size={18} />,
       label: 'Müəllimler',
-    },
-    {
-      href: '/admin/courses',
-      icon: <BookOpen size={18} />,
-      label: 'Dərsler',
     },
     {
       href: '/admin/course-types',
@@ -67,6 +62,11 @@ export default function Sidebar() {
       href: '/admin/locations',
       icon: <MapPin size={18} />,
       label: 'Dərs Yerləri',
+    },
+    {
+      href: '/admin/seasons',
+      icon: <CalendarRange size={18} />,
+      label: 'Kurslar',
     },
     {
       href: '/admin/schedule',
@@ -83,7 +83,7 @@ export default function Sidebar() {
   return (
     <div className="flex h-screen w-64 flex-col border-r bg-white">
       <div className="p-4">
-        <h2 className="text-xl font-bold text-blue-600">Tedris Journal</h2>
+        <h2 className="text-xl font-bold text-blue-600">Tedris Jurnal</h2>
         <p className="text-xs text-slate-500">Admin Paneli</p>
       </div>
       

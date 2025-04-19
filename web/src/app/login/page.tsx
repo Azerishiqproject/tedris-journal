@@ -71,8 +71,8 @@ export default function Login() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">
       <div className="bg-white p-8 rounded-xl shadow-xl w-full max-w-md border border-gray-100">
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-blue-600">Tedris Journal</h1>
-          <p className="text-gray-600 mt-2">Təhsil idarəetmə sisteminə xoş gəldiniz</p>
+          <h1 className="text-3xl font-bold text-blue-600">Tedris Jurnal</h1>
+          <p className="text-gray-600 mt-2">Tədris jurnal sisteminə xoş gəldiniz</p>
         </div>
         
         {error && (
@@ -98,7 +98,7 @@ export default function Login() {
                 autoComplete="email"
                 required
                 className="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 transition duration-150 text-black"
-                placeholder="ornek@example.com"
+                placeholder="Mail adresinizi daxil edin"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
               />

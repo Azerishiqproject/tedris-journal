@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { Calendar, Clock, MapPin, User, BookOpen, Plus, Edit, Trash, ChevronLeft, ChevronRight, Loader } from 'lucide-react';
+import { Calendar, Clock, MapPin, User, Plus, ChevronLeft, ChevronRight, Loader, CalendarRange, BookOpen } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useAppSelector, useAppDispatch } from '@/redux/hooks';
 import { 
@@ -15,9 +15,9 @@ import {
   checkTeacherLeave
 } from '@/redux/slices/scheduleSlice';
 import { fetchTeachers } from '@/redux/slices/teacherSlice';
-import { fetchCourses } from '@/redux/slices/courseSlice';
 import { fetchLocations } from '@/redux/slices/locationSlice';
 import { fetchCourseTypes } from '@/redux/slices/courseTypeSlice';
+import { fetchSeasons } from '@/redux/slices/seasonSlice';
 import DatePicker from "react-datepicker";
 import { registerLocale, setDefaultLocale } from "react-datepicker";
 import { tr } from 'date-fns/locale';
@@ -40,10 +40,10 @@ setDefaultLocale('tr');
 
 // Form initial state
 const emptyForm = {
-  courseId: '',
   teacherId: '',
   locationId: '',
   courseTypeId: '',
+  seasonId: '',
   date: new Date(),
   startTime: '09:00',
   endTime: '11:00',
@@ -53,7 +53,6 @@ const emptyForm = {
 // Update Lesson interface
 interface Schedule {
   id: string;
-  courseId: string;
   teacherId: string;
   locationId: string;
   courseTypeId: string;
@@ -61,7 +60,6 @@ interface Schedule {
   startTime: string;
   endTime: string;
   subject?: string;
-  courseName?: string;
   locationName?: string;
   teacherName?: string;
   type?: string;
@@ -75,6 +73,9 @@ interface Lesson extends Schedule {
     _id?: string;
   };
   notes?: string;
+  seasonId?: string;
+  seasonName?: string;
+  isChecked?: boolean;
 }
 
 interface SnackbarState {
@@ -208,10 +209,10 @@ export default function SchedulePage() {
   // Redux state'leri
   const { user, isAuthenticated } = useAppSelector((state) => state.auth);
   const { schedules, isLoading, error, conflict } = useAppSelector((state) => state.schedules);
-  const { courses } = useAppSelector((state) => state.courses);
   const { teachers } = useAppSelector((state) => state.teachers);
   const { locations } = useAppSelector((state) => state.locations);
   const { courseTypes } = useAppSelector((state) => state.courseTypes);
+  const { seasons } = useAppSelector((state) => state.seasons);
   
   // Yerel state'ler
   const [showForm, setShowForm] = useState(false);
@@ -260,14 +261,14 @@ export default function SchedulePage() {
     
     // Form seçenekleri için veri durumunu log edelim
     console.log('- Form options:', {
-      courses: courses?.length || 0,
       teachers: teachers?.length || 0,
       locations: locations?.length || 0,
-      courseTypes: courseTypes?.length || 0
+      courseTypes: courseTypes?.length || 0,
+      seasons: seasons?.length || 0
     });
   }, [
     schedules, isLoading, error, conflict, 
-    courses, teachers, locations, courseTypes, 
+    teachers, locations, courseTypes, seasons,
     user, isAuthenticated
   ]);
   
@@ -383,7 +384,7 @@ export default function SchedulePage() {
     setFormError(null);
     
     // Validation
-    if (!formData.courseId || !formData.courseTypeId || !formData.teacherId || !formData.date || !formData.startTime || !formData.endTime || !formData.locationId) {
+    if (!formData.teacherId || !formData.courseTypeId || !formData.date || !formData.startTime || !formData.endTime || !formData.locationId) {
       setFormError("Tüm alanları doldurun.");
       return;
     }
@@ -397,161 +398,148 @@ export default function SchedulePage() {
     }
     
     try {
-      // 1. Önce öğretmenin izinde olup olmadığını kontrol et
-      const leaveParams = {
-        teacherId: formData.teacherId,
-        date: formatDateForAPI(new Date(formData.date))
-      };
+      // Format date for API
+      const formattedDate = formatDateForAPI(formData.date);
       
-      // Call the API to check for teacher leave
-      const leaveResult = await dispatch(checkTeacherLeave(leaveParams)).unwrap();
-      
-      // If teacher is on leave, show error and stop
-      if (leaveResult.hasLeave) {
-        setFormError(leaveResult.message || "Bu təqvim tarixində müəllim izinlidir və dərs programlanamaz.");
-        return;
-      }
-      
-      // 2. Sonra öğretmenin başka dersi olup olmadığını kontrol et
+      // Check for teacher conflicts
       const conflictParams = {
         teacherId: formData.teacherId,
-        date: formatDateForAPI(new Date(formData.date)),
+        date: formattedDate,
         startTime: formData.startTime,
         endTime: formData.endTime,
-        excludeLessonId: editingId || undefined
+        ...(editingId ? { excludeLessonId: editingId } : {})
       };
       
-      // Call the API to check for conflicts
-      const conflictResult = await dispatch(checkTeacherConflict(conflictParams)).unwrap();
+      // First check for teacher conflicts
+      const teacherConflictResult = await dispatch(checkTeacherConflict(conflictParams)).unwrap();
+      console.log('Teacher conflict check result:', teacherConflictResult);
       
-      // If there's a conflict, show the error and stop
-      if (conflictResult.hasConflict) {
-        setFormError(conflictResult.message || "Müəllim üçün üst-üstə düşən dərs tapıldı.");
+      if (teacherConflictResult.hasConflict) {
+        setFormError(teacherConflictResult.message || "Öğretmen için çakışma tespit edildi.");
         return;
       }
       
-      // Log for debug
-      console.log('Form data being submitted:', formData);
+      // Then check for leave conflicts
+      const leaveParams = {
+        teacherId: formData.teacherId,
+        date: formattedDate
+      };
+      
+      const leaveConflictResult = await dispatch(checkTeacherLeave(leaveParams)).unwrap();
+      console.log('Leave conflict check result:', leaveConflictResult);
+      
+      if (leaveConflictResult.hasLeave) {
+        setFormError(leaveConflictResult.message || "Öğretmen bu tarihte izinli görünüyor.");
+        return;
+      }
+      
+      // Proceed to API call if no conflicts
+      const scheduleData = {
+        teacherId: formData.teacherId,
+        locationId: formData.locationId,
+        courseTypeId: formData.courseTypeId,
+        seasonId: formData.seasonId || null,
+        date: formattedDate,
+        startTime: formData.startTime,
+        endTime: formData.endTime,
+        subject: formData.subject
+      };
+      
+      console.log(`Submitting schedule data for ${editingId ? 'update' : 'create'}:`, scheduleData);
       
       if (editingId) {
-        // Update existing lesson
+        // Update existing schedule
         await dispatch(updateSchedule({ 
           id: editingId, 
-          scheduleData: {
-            courseId: formData.courseId,
-            teacherId: formData.teacherId,
-            locationId: formData.locationId,
-            courseTypeId: formData.courseTypeId,
-            date: formatDateForAPI(new Date(formData.date)),
-            startTime: formData.startTime,
-            endTime: formData.endTime,
-            subject: formData.subject
-          }
+          scheduleData 
         })).unwrap();
         
-        // Success - reset form and fetch updated data
-        setFormData(emptyForm);
-        setShowForm(false);
-        setEditingId(null);
-        
-        // Yenileme
-        dispatch(fetchSchedules(dateParams));
-        
-        showSnackbar('Dərs ugurla yenilendi.', 'success');
+        showSnackbar('Ders programı güncellenmiştir.', 'success');
       } else {
-        // Create new lesson
-        await dispatch(createSchedule({
-          courseId: formData.courseId,
-          teacherId: formData.teacherId,
-          locationId: formData.locationId,
-          courseTypeId: formData.courseTypeId,
-          date: formatDateForAPI(new Date(formData.date)),
-          startTime: formData.startTime,
-          endTime: formData.endTime,
-          subject: formData.subject
-        })).unwrap();
+        // Create new schedule
+        await dispatch(createSchedule(scheduleData)).unwrap();
         
-        // Success - reset form and fetch updated data
-        setFormData(emptyForm);
-        setShowForm(false);
-        
-        // Yenileme
-        dispatch(fetchSchedules(dateParams));
-        
-        showSnackbar('Yeni dərs ugurla əlavə edildi.', 'success');
+        showSnackbar('Ders programa əlavə edildi.', 'success');
       }
       
-      // Clear selected lesson
-      setSelectedLesson(null);
+      // Reset form on success
+      setFormData(emptyForm);
+      setShowForm(false);
+      setEditingId(null);
+      
+      // Refresh the schedule data to show the update
+      dispatch(fetchSchedules(dateParams));
     } catch (error: unknown) {
-      console.error('Lesson save error:', error);
-      
-      if (error instanceof Error) {
-        setFormError(error.message);
-      } else if (typeof error === 'string') {
-        setFormError(error);
-      } else {
-        setFormError('Dərs saxlanılırken bir xəta baş verdi.');
-      }
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      setFormError(errorMessage || "Bir hata oluştu");
+      console.error('Schedule submission error:', error);
     }
   };
 
   // Handle edit
   const handleEdit = (lesson: Lesson) => {
-    let lessonDate = new Date();
+    console.log('Editing lesson:', lesson);
     
-    if (lesson.date) {
-      lessonDate = new Date(lesson.date);
-    }
-    
-    setFormData({
-      courseId: lesson.courseId,
-      teacherId: lesson.teacherId,
-      locationId: lesson.locationId,
-      courseTypeId: lesson.courseTypeId || '',
-      date: lessonDate,
-      startTime: lesson.startTime,
-      endTime: lesson.endTime,
-      subject: lesson.subject || ''
-    });
-    
-    setEditingId(lesson.id);
-    setShowForm(true);
-    setFormError(null);
-    dispatch(resetScheduleError());
-    dispatch(resetConflict());
-    setSelectedLesson(null);
-    
-    setTimeout(() => {
-      if (formRef.current) {
-        formRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      } else {
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+    try {
+      if (!lesson.id) {
+        showSnackbar('Ders ID bulunamadı', 'error');
+        return;
       }
-    }, 100);
+      
+      // Format date from ISO string to Date object
+      const lessonDate = new Date(lesson.date);
+      
+      // Set form data
+      setFormData({
+        teacherId: lesson.teacherId,
+        locationId: lesson.locationId,
+        courseTypeId: lesson.courseTypeId,
+        seasonId: lesson.seasonId || '',
+        date: lessonDate,
+        startTime: lesson.startTime,
+        endTime: lesson.endTime,
+        subject: lesson.subject || ''
+      });
+      
+      setEditingId(lesson.id);
+      setShowForm(true);
+      setFormError(null);
+      dispatch(resetScheduleError());
+      dispatch(resetConflict());
+      setSelectedLesson(null);
+      
+      setTimeout(() => {
+        if (formRef.current) {
+          formRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } else {
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+      }, 100);
+    } catch (error) {
+      console.error('Edit lesson error:', error);
+      showSnackbar('Dərs düzəlişi zamanı xəta baş verdi', 'error');
+    }
   };
 
-  // Fetch schedule data when week changes
+  // Veri yükleme
   useEffect(() => {
-    if (user && user.role === 'admin' && isAuthenticated) {
-      console.log(`Fetching schedules for week: ${dateParams.startDate} to ${dateParams.endDate}`);
+    if (isAuthenticated && user?.role === 'admin') {
+      if (dateParams.startDate && dateParams.endDate) {
+        dispatch(fetchSchedules(dateParams));
+      }
       
-      dispatch(fetchSchedules(dateParams));
-      
-      if (courses.length === 0) dispatch(fetchCourses('active'));
+      // Diğer gerekli verileri kontrol edip gerekirse yükle
       if (teachers.length === 0) dispatch(fetchTeachers('active'));
       if (locations.length === 0) dispatch(fetchLocations('active'));
       if (courseTypes.length === 0) dispatch(fetchCourseTypes('active'));
+      if (seasons.length === 0) dispatch(fetchSeasons('active'));
     }
   }, [
-    dispatch, 
-    user, 
-    isAuthenticated, 
-    dateParams, 
-    courses.length, 
+    dispatch, isAuthenticated, user, dateParams,
     teachers.length, 
     locations.length, 
-    courseTypes.length
+    courseTypes.length,
+    seasons.length
   ]);
 
   // Handle delete
@@ -609,48 +597,46 @@ export default function SchedulePage() {
     setSelectedLesson(null);
   };
 
+
+
   // Filter lessons for the current week view
   const currentWeekLessons = schedules.filter((schedule: Schedule) => {
     if (!schedule.date) return false;
     return isDateInWeek(schedule.date, weekDates);
   }).map(scheduleToLesson);
 
-  // Handle duplicate lesson işlevini güncelliyorum
+  // Handle lesson duplication
   const handleDuplicateLesson = async (lesson: Lesson, e: React.MouseEvent) => {
-    // Stop event from propagating to parent elements
     e.stopPropagation();
     
     try {
-      // Dersin tam verilerini Redux store'dan al
-      const originalSchedule = schedules.find(s => s.id === lesson.id);
+      // Original schedule to duplicate
+      const originalSchedule = lesson;
       
-      if (!originalSchedule) {
-        showSnackbar('Kopyalanacak ders bulunamadı. Lütfen sayfayı yenileyip tekrar deneyin.', 'error');
+      if (!originalSchedule.id) {
+        showSnackbar('Ders ID bulunamadı', 'error');
         return;
       }
       
-      // Dersin süresini hesapla
-      const startMinutes = timeToMinutes(originalSchedule.startTime);
-      const endMinutes = timeToMinutes(originalSchedule.endTime);
-      const lessonDuration = endMinutes - startMinutes;
-      
-      // Yeni başlangıç saati (orijinal dersin bitiş saatinden 10 dakika sonra)
+      // Add 10 minutes to the end time of the original lesson to get the start time for the new one
       const newStartTime = addMinutesToTime(originalSchedule.endTime, 10);
       
-      // Yeni bitiş saati (yeni başlangıç + orijinal süre)
-      const newStartMinutes = timeToMinutes(newStartTime);
-      const newEndMinutes = newStartMinutes + lessonDuration;
-      const newEndTime = `${Math.floor(newEndMinutes / 60).toString().padStart(2, '0')}:${(newEndMinutes % 60).toString().padStart(2, '0')}`;
+      // Calculate end time for new lesson (same duration as original)
+      const startMinutes = timeToMinutes(originalSchedule.startTime);
+      const endMinutes = timeToMinutes(originalSchedule.endTime);
+      const durationMinutes = endMinutes - startMinutes;
       
-      console.log(`Original lesson: ${originalSchedule.startTime}-${originalSchedule.endTime}, duration: ${lessonDuration} minutes`);
-      console.log(`New lesson: ${newStartTime}-${newEndTime}, starts 10 minutes after original lesson ends`);
+      const newEndTimeMinutes = timeToMinutes(newStartTime) + durationMinutes;
+      const newEndHours = Math.floor(newEndTimeMinutes / 60);
+      const newEndMinutes = newEndTimeMinutes % 60;
+      const newEndTime = `${newEndHours.toString().padStart(2, '0')}:${newEndMinutes.toString().padStart(2, '0')}`;
       
-      // Backend'in beklediği tüm alanları içeren veri objesi oluştur
+      // Prepare new schedule data
       const newScheduleData = {
-        courseId: originalSchedule.courseId,
         teacherId: originalSchedule.teacherId,
         locationId: originalSchedule.locationId,
         courseTypeId: originalSchedule.courseTypeId,
+        seasonId: originalSchedule.seasonId || null,
         date: formatDateForAPI(new Date(originalSchedule.date)),
         startTime: newStartTime,
         endTime: newEndTime,
@@ -694,7 +680,7 @@ export default function SchedulePage() {
       dispatch(fetchSchedules(dateParams));
       
       // Show success message
-      showSnackbar('Dərs uğurla kopyalandı ve önceki dersin bitiminden 10 dəqiqə sonraya yerləşdirildi', 'success');
+      showSnackbar('Dərs uğurla kopyalandı ve əvvəlki dərsin bitiminden 10 dəqiqə sonraya yerləşdirildi', 'success');
     } catch (error: unknown) {
       console.error('Duplicate lesson error:', error);
       
@@ -765,7 +751,7 @@ export default function SchedulePage() {
                 className="text-sm text-blue-600 hover:text-blue-800"
                 disabled={isLoading}
               >
-                Bugünə Dön
+                Bugünə Qayıt
               </button>
             )}
             {isLoading && (
@@ -808,40 +794,40 @@ export default function SchedulePage() {
           )}
           
           <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label htmlFor="seasonId" className="block text-sm font-medium text-gray-700">
+                Kurs <span className="text-xs text-gray-500">(Sadəcə aktif kurslar)</span>
+              </label>
+              <select
+                id="seasonId"
+                name="seasonId"
+                value={formData.seasonId}
+                onChange={(e) => {
+                  handleChange(e);
+                  // Seçilen sezonu logla
+                  const selectedId = e.target.value;
+                  const selectedSeason = seasons?.find(s => (s.id === selectedId || s._id === selectedId));
+                  console.log('Seçilen kurs:', selectedSeason, 'ID:', selectedId);
+                }}
+                required
+                className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-blue-500 text-black"
+                disabled={isLoading}
+              >
+                <option value="">Kurs seçin</option>
+                {seasons?.map((season, index) => {
+                  const seasonId = season.id || season._id || '';
+                  const seasonName = season.name || 'Adsız kurs';
+                  console.log(`Kurs option: ID=${seasonId}, Name=${seasonName}`);
+                  return (
+                    <option key={season.id || season._id || `season-${index}`} value={seasonId}>
+                      {seasonName}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+            
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div>
-                <label htmlFor="courseId" className="block text-sm font-medium text-gray-700">
-                  Ders <span className="text-xs text-gray-500">(Sadəcə aktif derslər)</span>
-                </label>
-                <select
-                  id="courseId"
-                  name="courseId"
-                  value={formData.courseId}
-                  onChange={(e) => {
-                    handleChange(e);
-                    // Seçilen dersi logla
-                    const selectedId = e.target.value;
-                    const selectedCourse = courses?.find(c => (c.id === selectedId || c._id === selectedId));
-                    console.log('Seçilen ders:', selectedCourse, 'ID:', selectedId);
-                  }}
-                  required
-                  className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-blue-500 text-black"
-                  disabled={isLoading}
-                >
-                  <option value="">Ders seçin</option>
-                  {courses?.map((course, index) => {
-                    const courseId = course.id || course._id || '';
-                    const courseName = course.name || 'İsimsiz ders';
-                    console.log(`Ders option: ID=${courseId}, Name=${courseName}`);
-                    return (
-                      <option key={course.id || course._id || `course-${index}`} value={courseId}>
-                        {courseName}
-                      </option>
-                    );
-                  })}
-                </select>
-              </div>
-              
               <div>
                 <label htmlFor="teacherId" className="block text-sm font-medium text-gray-700">
                   Müəllim <span className="text-xs text-gray-500">(Sadəcə aktif müəllimlər)</span>
@@ -907,109 +893,109 @@ export default function SchedulePage() {
                   })}
                 </select>
               </div>
-              
-              <div>
-                <label htmlFor="courseTypeId" className="block text-sm font-medium text-gray-700">
-                  Dərs Tipi <span className="text-xs text-gray-500">(Sadəcə aktif dərs tipləri)</span>
-                </label>
-                <select
-                  id="courseTypeId"
-                  name="courseTypeId"
-                  value={formData.courseTypeId}
-                  onChange={(e) => {
-                    handleChange(e);
-                    // Seçilen ders tipini logla
-                    const selectedId = e.target.value;
-                    const selectedCourseType = courseTypes?.find(ct => (ct.id === selectedId || ct._id === selectedId));
-                    console.log('Seçilen ders tipi:', selectedCourseType, 'ID:', selectedId);
-                  }}
-                  required
-                  className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-blue-500 text-black"
+            </div>
+            
+            <div>
+              <label htmlFor="courseTypeId" className="block text-sm font-medium text-gray-700">
+                Dərs Tipi <span className="text-xs text-gray-500">(Sadəcə aktif dərs tipləri)</span>
+              </label>
+              <select
+                id="courseTypeId"
+                name="courseTypeId"
+                value={formData.courseTypeId}
+                onChange={(e) => {
+                  handleChange(e);
+                  // Seçilen ders tipini logla
+                  const selectedId = e.target.value;
+                  const selectedCourseType = courseTypes?.find(ct => (ct.id === selectedId || ct._id === selectedId));
+                  console.log('Seçilen ders tipi:', selectedCourseType, 'ID:', selectedId);
+                }}
+                required
+                className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-blue-500 text-black"
+                disabled={isLoading}
+              >
+                <option value="">Dərs tipi seçin</option>
+                {courseTypes?.map((courseType, index) => {
+                  const courseTypeId = courseType.id || courseType._id || '';
+                  const courseTypeName = courseType.name || 'İsimsiz tipi';
+                  console.log(`Dərs tipi option: ID=${courseTypeId}, Name=${courseTypeName}`);
+                  return (
+                    <option key={courseType.id || courseType._id || `course-type-${index}`} value={courseTypeId}>
+                      {courseTypeName}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+            
+            <div>
+              <label htmlFor="date" className="block text-sm font-medium text-gray-700">
+                Tarix
+              </label>
+              <div className="mt-1">
+                <style>{customDatePickerStyles}</style>
+                <DatePicker
+                  selected={formData.date}
+                  onChange={(date: Date | null) => handleChange(null, 'date', date || new Date())}
+                  dateFormat="dd.MM.yyyy"
+                  className="block w-full rounded-md border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-blue-500 text-black"
                   disabled={isLoading}
-                >
-                  <option value="">Dərs tipi seçin</option>
-                  {courseTypes?.map((courseType, index) => {
-                    const courseTypeId = courseType.id || courseType._id || '';
-                    const courseTypeName = courseType.name || 'İsimsiz tipi';
-                    console.log(`Dərs tipi option: ID=${courseTypeId}, Name=${courseTypeName}`);
-                    return (
-                      <option key={courseType.id || courseType._id || `course-type-${index}`} value={courseTypeId}>
-                        {courseTypeName}
-                      </option>
-                    );
-                  })}
-                </select>
+                  placeholderText="Tarix seçin"
+                  locale="tr"
+                  showMonthDropdown
+                  showYearDropdown
+                  dropdownMode="select"
+                />
               </div>
-              
+            </div>
+            
+            <div className="grid grid-cols-2 gap-2">
               <div>
-                <label htmlFor="date" className="block text-sm font-medium text-gray-700">
-                  Tarix
-                </label>
-                <div className="mt-1">
-                  <style>{customDatePickerStyles}</style>
-                  <DatePicker
-                    selected={formData.date}
-                    onChange={(date: Date | null) => handleChange(null, 'date', date || new Date())}
-                    dateFormat="dd.MM.yyyy"
-                    className="block w-full rounded-md border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-blue-500 text-black"
-                    disabled={isLoading}
-                    placeholderText="Tarix seçin"
-                    locale="tr"
-                    showMonthDropdown
-                    showYearDropdown
-                    dropdownMode="select"
-                  />
-                </div>
-              </div>
-              
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label htmlFor="startTime" className="block text-sm font-medium text-gray-700">
-                    Başlanğıç Saatı
-                  </label>
-                  <input
-                    type="time"
-                    id="startTime"
-                    name="startTime"
-                    value={formData.startTime}
-                    onChange={handleChange}
-                    required
-                    className="mt-1 block w-full text-black rounded-md border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-blue-500 text-black"
-                    disabled={isLoading}
-                  />
-                </div>
-                <div>
-                  <label htmlFor="endTime" className="block text-sm font-medium text-gray-700">
-                    Bitiş Saatı
-                  </label>
-                  <input
-                    type="time"
-                    id="endTime"
-                    name="endTime"
-                    value={formData.endTime}
-                    onChange={handleChange}
-                    required
-                    className="mt-1 block w-full text-black rounded-md border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-blue-500 text-black"
-                    disabled={isLoading}
-                  />
-                </div>
-              </div>
-              
-              <div className="md:col-span-2">
-                <label htmlFor="subject" className="block text-sm font-medium text-gray-700">
-                  Konu
+                <label htmlFor="startTime" className="block text-sm font-medium text-gray-700">
+                  Başlanğıç Saatı
                 </label>
                 <input
-                  type="text"
-                  id="subject"
-                  name="subject"
-                  value={formData.subject}
+                  type="time"
+                  id="startTime"
+                  name="startTime"
+                  value={formData.startTime}
                   onChange={handleChange}
                   required
                   className="mt-1 block w-full text-black rounded-md border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-blue-500 text-black"
                   disabled={isLoading}
                 />
               </div>
+              <div>
+                <label htmlFor="endTime" className="block text-sm font-medium text-gray-700">
+                  Bitiş Saatı
+                </label>
+                <input
+                  type="time"
+                  id="endTime"
+                  name="endTime"
+                  value={formData.endTime}
+                  onChange={handleChange}
+                  required
+                  className="mt-1 block w-full text-black rounded-md border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-blue-500 text-black"
+                  disabled={isLoading}
+                />
+              </div>
+            </div>
+            
+            <div className="md:col-span-2">
+              <label htmlFor="subject" className="block text-sm font-medium text-gray-700">
+                Konu
+              </label>
+              <input
+                type="text"
+                id="subject"
+                name="subject"
+                value={formData.subject}
+                onChange={handleChange}
+                required
+                className="mt-1 block w-full text-black rounded-md border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-blue-500 text-black"
+                disabled={isLoading}
+              />
             </div>
             
             <div className="flex justify-end gap-2">
@@ -1047,155 +1033,177 @@ export default function SchedulePage() {
 
       {/* Lesson Details Modal */}
       {selectedLesson && (
-        <div className="fixed inset-0 z-50 flex h-screen items-center justify-center" style={{ backgroundColor: 'rgba(0, 0, 0, 0.5)' }}>
-          <div className="relative max-w-md w-full rounded-xl bg-white p-6 shadow-2xl border border-gray-200">
-            <button 
-              onClick={handleCloseDetails}
-              className="absolute right-4 top-4 text-gray-500 hover:text-gray-700 transition-colors"
-              aria-label="Kapat"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="18" y1="6" x2="6" y2="18"></line>
-                <line x1="6" y1="6" x2="18" y2="18"></line>
-              </svg>
-            </button>
-            
-            <div className="flex items-center mb-5">
-              <div className={`h-12 w-12 rounded-full flex items-center justify-center mr-4 ${getTypeColor(selectedLesson.type)}`}>
-                <BookOpen size={20} />
-              </div>
-              <div>
-                <h3 className="text-2xl font-bold text-gray-800">{selectedLesson.courseName}</h3>
-                <p className="text-gray-700 font-medium">{selectedLesson.subject}</p>
-              </div>
+        <div className="fixed inset-0 z-50 flex items-center justify-center h-screen bg-opacity-50" style={{ backgroundColor: 'rgba(0, 0, 0, 0.5)' }}>
+          <div className="relative max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg bg-white p-6 shadow-lg">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xl font-semibold text-slate-800">Ders Detayları</h3>
+              <button
+                onClick={handleCloseDetails}
+                className="rounded-full p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition-colors"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
             </div>
             
-            <div className="mb-6 space-y-4">
-              <div className="flex items-center p-2 rounded-lg bg-blue-50">
-                <Calendar className="h-5 w-5 text-blue-600 mr-3" />
-              <div>
-                  <p className="text-sm font-medium text-gray-700">Tarix ve Gün</p>
-                  <p className="text-gray-900 font-medium">
-                  {selectedLesson.date ? new Date(selectedLesson.date).toLocaleDateString('tr-TR', { 
-                      year: 'numeric', month: 'numeric', day: 'numeric', weekday: 'long' 
-                  }) : 'Tarix məlumatı yoxdur'}
-                </p>
-              </div>
+            <div className="space-y-6">
+              {/* Subject header with color background */}
+              <div className="rounded-md bg-blue-50 p-4 border-l-4 border-blue-500">
+                <h4 className="font-bold text-blue-700 text-lg">{selectedLesson.subject}</h4>
               </div>
               
-              <div className="flex items-center p-2 rounded-lg bg-green-50">
-                <Clock className="h-5 w-5 text-green-600 mr-3" />
-              <div>
-                  <p className="text-sm font-medium text-gray-700">Saat</p>
-                  <p className="text-gray-900 font-medium">{selectedLesson.startTime} - {selectedLesson.endTime}</p>
-              </div>
-              </div>
-              
-              
-              
-              <div className="flex items-center p-2 rounded-lg bg-purple-50">
-                <User className="h-5 w-5 text-purple-600 mr-3" />
-              <div>
-                  <p className="text-sm font-medium text-gray-700">Müəllim</p>
-                  <p className="text-gray-900 font-medium">
-                    {(() => {
-                      const teacher = selectedLesson.teacher as Teacher | undefined;
-                      
-                      // First check for teacherName
-                      if (selectedLesson.teacherName) {
-                        return selectedLesson.teacherName;
-                      }
-                      
-                      // Then check for teacher object
-                      if (teacher?.firstName && teacher?.lastName) {
-                        return `${teacher.firstName} ${teacher.lastName}`;
-                      }
-                      
-                      // Finally check in Redux store
-                      const matchingTeacher = teachers.find((t: Teacher) => 
-                        t.id === selectedLesson.teacherId || t._id === selectedLesson.teacherId
-                      );
-                      
-                      if (matchingTeacher?.firstName && matchingTeacher?.lastName) {
-                        return `${matchingTeacher.firstName} ${matchingTeacher.lastName}`;
-                      }
-                      
-                      return 'Müəllim seçilmədi';
-                    })()}
-                  </p>
-              </div>
-              </div>
-              
-              <div className="flex items-center p-2 rounded-lg bg-yellow-50">
-                <MapPin className="h-5 w-5 text-yellow-600 mr-3" />
-              <div>
-                  <p className="text-sm font-medium text-gray-700">Ders Yeri</p>
-                  <p className="text-gray-900 font-medium">{selectedLesson.locationName}</p>
-              </div>
-              </div>
-              
-              <div className="flex items-center p-2 rounded-lg bg-red-50">
-                <BookOpen className="h-5 w-5 text-red-600 mr-3" />
-              <div>
-                  <p className="text-sm font-medium text-gray-700">Ders Tipi</p>
-                  <p className="text-gray-900 font-medium">{selectedLesson.type}</p>
-              </div>
-            </div>
-            
-              <div className="p-2 rounded-lg bg-indigo-50">
-                <div className="flex items-center mb-1">
-                  <BookOpen className="h-5 w-5 text-indigo-600 mr-3" />
-                  <p className="text-sm font-medium text-gray-700">Dərs Açıqlaması</p>
+              {/* Date and Time badges */}
+              <div className="flex flex-wrap gap-2 mb-2">
+                <div className="flex items-center rounded-md bg-gray-100 px-3 py-2 text-sm text-gray-700">
+                  <Calendar className="mr-2 h-4 w-4 text-gray-500" />
+                  <span>
+                    {new Date(selectedLesson.date).toLocaleDateString('tr-TR', {
+                      weekday: 'long',
+                      day: 'numeric',
+                      month: 'long',
+                      year: 'numeric'
+                    })}
+                  </span>
                 </div>
-                <div className="ml-8 mt-1">
-                  <div className="text-gray-900">
-                    {(() => {
-                      // Önce subject (konu) alanını göster
-                      if (selectedLesson.subject) {
-                        return (
-                          <div>
-                            <span>{selectedLesson.subject}</span>
-                          </div>
+                
+                <div className="flex items-center rounded-md bg-gray-100 px-3 py-2 text-sm text-gray-700">
+                  <Clock className="mr-2 h-4 w-4 text-gray-500" />
+                  <span>{selectedLesson.startTime} - {selectedLesson.endTime}</span>
+                </div>
+              </div>
+              
+              {/* Details grid */}
+              <div className="grid grid-cols-1 gap-4 bg-gray-50 rounded-lg p-4">
+                {/* Kurs - Full width */}
+                <div className="bg-white rounded-md p-3 shadow-sm">
+                  <div className="text-xs font-medium uppercase text-gray-500 mb-1">Kurs</div>
+                  <div className="flex items-center">
+                    <CalendarRange className="mr-2 h-5 w-5 text-purple-500" />
+                    <span className="text-sm font-medium text-gray-800">{selectedLesson.seasonName || 'Kurs seçilməyib'}</span>
+                  </div>
+                </div>
+                
+                {/* Müəllim - Full width */}
+                <div className="bg-white rounded-md p-3 shadow-sm">
+                  <div className="text-xs font-medium uppercase text-gray-500 mb-1">Müəllim</div>
+                  <div className="flex items-center">
+                    <User className="mr-2 h-5 w-5 text-blue-500" />
+                    <span className="text-sm font-medium text-gray-800">
+                      {(() => {
+                        if (selectedLesson.teacherName) {
+                          return selectedLesson.teacherName;
+                        }
+                        
+                        const teacher = selectedLesson.teacher as Teacher | undefined;
+                        if (teacher?.firstName && teacher?.lastName) {
+                          return `${teacher.firstName} ${teacher.lastName}`;
+                        }
+                        
+                        const matchingTeacher = teachers.find((t: Teacher) => 
+                          t.id === selectedLesson.teacherId || t._id === selectedLesson.teacherId
                         );
-                      }
-                      return null;
-                    })()}
-                    
-                   
-                    
-                    {(() => {
-                      // Notlar varsa göster
-                      if (selectedLesson?.notes) {
-                        return (
-                          <div className="mt-2">
-                            <span>{selectedLesson.notes}</span>
-                          </div>
-                        );
-                      }
-                      return null;
-                    })()}
+                        
+                        if (matchingTeacher?.firstName && matchingTeacher?.lastName) {
+                          return `${matchingTeacher.firstName} ${matchingTeacher.lastName}`;
+                        }
+                        
+                        return 'Müəllim seçilmədi';
+                      })()}
+                    </span>
+                  </div>
+                </div>
+                
+                {/* Yer and Dərs Tipi - Two columns */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-white rounded-md p-3 shadow-sm">
+                    <div className="text-xs font-medium uppercase text-gray-500 mb-1">Yer</div>
+                    <div className="flex items-center">
+                      <MapPin className="mr-2 h-5 w-5 text-red-500" />
+                      <span className="text-sm font-medium text-gray-800">{selectedLesson.locationName}</span>
+                    </div>
+                  </div>
+                  
+                  <div className="bg-white rounded-md p-3 shadow-sm">
+                    <div className="text-xs font-medium uppercase text-gray-500 mb-1">Dərs Tipi</div>
+                    <div className="flex items-center">
+                      <div className={`h-5 w-5 rounded-full mr-2 flex items-center justify-center ${
+                        selectedLesson.type === 'lecture' ? 'bg-green-100 text-green-600' :
+                        selectedLesson.type === 'practice' ? 'bg-yellow-100 text-yellow-600' :
+                        selectedLesson.type === 'exam' ? 'bg-red-100 text-red-600' :
+                        'bg-blue-100 text-blue-600'
+                      }`}>
+                        <BookOpen size={12} />
+                      </div>
+                      <span className="text-sm font-medium text-gray-800">{selectedLesson.type}</span>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-            
-            <div className="flex justify-end gap-3 pt-4 border-t border-gray-200">
-              <button
-                onClick={() => handleEdit(selectedLesson)}
-                className="flex items-center gap-1.5 rounded-lg bg-blue-100 px-4 py-2.5 text-blue-700 hover:bg-blue-200 transition-colors font-medium"
-                disabled={isLoading}
-              >
-                <Edit size={16} />
-                <span>Düzenle</span>
-              </button>
-              <button
-                onClick={() => handleDelete(selectedLesson.id)}
-                className="flex items-center gap-1.5 rounded-lg bg-red-100 px-4 py-2.5 text-red-700 hover:bg-red-200 transition-colors font-medium"
-                disabled={isLoading}
-              >
-                <Trash size={16} />
-                <span>Sil</span>
-              </button>
+              
+              {/* Status indicator */}
+              <div className="flex justify-between items-center px-2">
+                <div className="flex items-center">
+                  {selectedLesson.isChecked ? (
+                    <div className="flex items-center text-green-600">
+                      <div className="bg-green-100 p-1 rounded-full mr-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="20 6 9 17 4 12"></polyline>
+                        </svg>
+                      </div>
+                      <span className="text-sm font-medium">Yoxlanılmış dərs</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center text-gray-500">
+                      <div className="bg-gray-100 p-1 rounded-full mr-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <circle cx="12" cy="12" r="10"></circle>
+                          <line x1="12" y1="8" x2="12" y2="12"></line>
+                          <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                        </svg>
+                      </div>
+                      <span className="text-sm font-medium">Yoxlanılmamış dərs</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+              
+              {/* Action buttons */}
+              <div className="flex flex-wrap justify-end gap-2 pt-2 border-t border-gray-200">
+                <button
+                  onClick={() => {
+                    handleDuplicateLesson(selectedLesson, new Event('click') as unknown as React.MouseEvent);
+                    handleCloseDetails();
+                  }}
+                  className="rounded-md border border-blue-600 px-4 py-2 text-sm font-medium text-blue-600 hover:bg-blue-50 transition-colors"
+                  title="10 dəqiqə sonrasına kopyala"
+                >
+                  Dublikat
+                </button>
+                
+                
+                
+                <button
+                  onClick={() => {
+                    handleEdit(selectedLesson);
+                    handleCloseDetails();
+                  }}
+                  className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
+                >
+                  Düzəliş Et
+                </button>
+                
+                <button
+                  onClick={() => {
+                    handleDelete(selectedLesson.id);
+                    handleCloseDetails();
+                  }}
+                  className="rounded-md border border-red-600 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 transition-colors"
+                >
+                  Sil
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1263,7 +1271,7 @@ export default function SchedulePage() {
                     )}
                   </div>
                 </div>
-                <div className="relative flex-grow p-2 h-48">
+                <div className="relative flex-grow p-2 min-h-[16rem] h-auto">
                   {/* Hour grid lines */}
                   <div className="absolute inset-0">
                     <div className="flex h-full justify-between">
@@ -1304,20 +1312,23 @@ export default function SchedulePage() {
                       const heightPerLesson = 60; // pixels
                       const topOffset = positionInGroup * heightPerLesson;
                       
+                      // Update parent container's min-height if needed
+                      
                       return (
                         <div
                           key={lesson.id}
-                          className={`absolute rounded-md py-1 px-2 shadow-sm hover:shadow-md transition-shadow cursor-pointer border-l-4 ${getTypeColor(lesson.type)}`}
+                          className={`absolute rounded-md py-1 mt-1 px-2 shadow-sm hover:shadow-md transition-shadow cursor-pointer border-l-4 ${getTypeColor(lesson.type)}`}
                           style={{ 
                             left, 
                             width, 
                             top: `${topOffset}px`,
                             height: `${heightPerLesson - 2}px`,
-                            zIndex: positionInGroup + 1
+                            zIndex: positionInGroup + 1,
+                            maxHeight: `${heightPerLesson - 2}px` // Ensure consistent height
                           }}
                           onClick={() => handleLessonClick(lesson)}
                         >
-                          <div className="relative overflow-hidden text-xs">
+                          <div className="relative overflow-hidden text-xs ">
                             {/* Duplicate button */}
                             <button 
                               className="absolute right-0 top-0 bg-white rounded-full p-1 shadow-sm hover:bg-blue-100 transition-colors"
@@ -1332,7 +1343,17 @@ export default function SchedulePage() {
                               </svg>
                             </button>
                             
-                            <div className="font-bold truncate">{lesson.courseName}</div>
+                            {/* Check mark indicator for verified lessons */}
+                            {lesson.isChecked && (
+                              <div className="absolute z-10 right-0 bottom-0 bg-green-500 rounded-full  p-0.5" title="Yoxlanılmış dərs">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" 
+                                  stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                                  <polyline points="20 6 9 17 4 12"></polyline>
+                                </svg>
+                              </div>
+                            )}
+                            
+                            <div className="font-bold truncate">{lesson.subject}</div>
                             <div className="truncate font-medium">
                               {(() => {
                                 const teacher = lesson.teacher as Teacher | undefined;

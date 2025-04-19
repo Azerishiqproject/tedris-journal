@@ -2,21 +2,21 @@ import { configureStore } from '@reduxjs/toolkit';
 import { setupListeners } from '@reduxjs/toolkit/query';
 import authReducer from '@/redux/slices/authSlice';
 import teacherReducer from '@/redux/slices/teacherSlice';
-import courseReducer from '@/redux/slices/courseSlice';
 import courseTypeReducer from '@/redux/slices/courseTypeSlice';
 import locationReducer from '@/redux/slices/locationSlice';
 import scheduleReducer from '@/redux/slices/scheduleSlice';
 import leaveReducer from './slices/leaveSlice';
+import seasonReducer from './slices/seasonSlice';
 
 export const store = configureStore({
   reducer: {
     auth: authReducer,
     teachers: teacherReducer,
-    courses: courseReducer,
     courseTypes: courseTypeReducer,
     locations: locationReducer,
     schedules: scheduleReducer,
     leaves: leaveReducer,
+    seasons: seasonReducer,
     // Add other reducers here
   },
   middleware: (getDefaultMiddleware) =>

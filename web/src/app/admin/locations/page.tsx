@@ -140,7 +140,7 @@ export default function LocationsPage() {
         setFormData(emptyForm);
         setShowForm(false);
         setEditingId(null);
-        showSnackbar('Ders yeri başarıyla güncellendi.');
+        showSnackbar('Dərs yeri başarıyla güncellendi.');
       } else {
         // Add new location
         await dispatch(createLocation(formData)).unwrap();
@@ -151,12 +151,12 @@ export default function LocationsPage() {
         // Reset form on success
         setFormData(emptyForm);
         setShowForm(false);
-        showSnackbar('Yeni ders yeri ugurla əlavə edildi.');
+        showSnackbar('Yeni dərs yeri ugurla əlavə edildi.');
       }
     } catch (err) {
       // Error handling is managed by Redux
       console.error('Location operation failed:', err);
-      showSnackbar('Ders yeri işlemi sırasında bir hata oluştu. Lütfen daha sonra tekrar deneyin.', 'error');
+      showSnackbar('Dərs yeri işlemi sırasında bir hata oluştu. Lütfen daha sonra tekrar deneyin.', 'error');
     }
   };
 
@@ -173,13 +173,13 @@ export default function LocationsPage() {
 
   // Handle delete
   const handleDelete = async (id: string) => {
-    if (confirm('Bu ders yerini silmek istediğinize emin misiniz?')) {
+    if (confirm('Bu dərs yerini silmek istediğinize emin misiniz?')) {
       try {
         await dispatch(deleteLocation(id)).unwrap();
         
         // Silme işlemi sonrası lokasyonları yeniden çek
         await dispatch(fetchLocations(activeTab));
-        showSnackbar('Ders yeri başarıyla silindi.', 'delete');
+        showSnackbar('Dərs yeri başarıyla silindi.', 'delete');
       } catch (err: unknown) {
         // Error handling is managed by Redux
         console.error('Failed to delete location:', err);
@@ -187,10 +187,10 @@ export default function LocationsPage() {
         // Check if location is in use
         const errorMessage = err instanceof Error ? err.message : String(err);
         
-        if (errorMessage.includes('Bu ders yeri programda kullanılıyor')) {
-          showSnackbar('Bu ders yeri programda kullanılıyor ve silinemez.', 'warning');
+        if (errorMessage.includes('Bu dərs yeri programda kullanılıyor')) {
+          showSnackbar('Bu dərs yeri programda kullanılıyor ve silinemez.', 'warning');
         } else {
-          showSnackbar('Ders yeri silme işlemi sırasında bir hata oluştu.', 'warning');
+          showSnackbar('Dərs yeri silme işlemi sırasında bir hata oluştu.', 'warning');
         }
       }
     }
@@ -248,7 +248,7 @@ export default function LocationsPage() {
       {showForm && (
         <div className="rounded-lg border bg-white p-6 shadow-sm">
           <h2 className="mb-4 text-lg font-semibold text-gray-800">
-            {editingId ? 'Ders Yeri Düzəliş Et' : 'Yeni Ders Yeri Əlavə Et'}
+            {editingId ? 'Dərs Yeri Düzəliş Et' : 'Yeni Dərs Yeri Əlavə Et'}
           </h2>
           
           {formError && (
@@ -261,7 +261,7 @@ export default function LocationsPage() {
             <div className="space-y-4">
               <div>
                 <label htmlFor="name" className="block text-sm font-medium text-gray-700">
-                  Ders Yeri
+                  Dərs Yeri
                 </label>
                 <input
                   type="text"
@@ -271,7 +271,7 @@ export default function LocationsPage() {
                   onChange={handleChange}
                   required
                   className="mt-1 block w-full text-black rounded-md border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-blue-500"
-                  placeholder="Örn: A-101, Fizik Laboratuvarı"
+                  placeholder="Mes : Online"
                   disabled={isLoading}
                 />
               </div>
@@ -286,7 +286,7 @@ export default function LocationsPage() {
                   onChange={handleChange}
                   rows={3}
                   className="mt-1 block w-full text-black rounded-md border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-blue-500"
-                  placeholder="Ders yeri hakkında ek bilgiler"
+                  placeholder=""
                   disabled={isLoading}
                 />
               </div>
@@ -359,7 +359,7 @@ export default function LocationsPage() {
         <input
           type="text"
           className="block w-full rounded-lg border border-gray-300 bg-white p-2.5 pl-10 text-gray-800 focus:border-blue-500 focus:ring-blue-500"
-          placeholder="Dərs yeri ara..."
+          placeholder="Dərs yeri axtar..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
         />

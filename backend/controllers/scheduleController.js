@@ -34,20 +34,32 @@ exports.getAllSchedules = async (req, res) => {
       };
     }
 
+    // Get active season IDs
+    const Season = require('../models/Season');
+    const activeSeasons = await Season.find({ isActive: true }).select('_id').lean();
+    const activeSeasonIds = activeSeasons.map(season => season._id);
+
+    // Complete query with season filter
+    const query = {
+      ...dateFilter,
+      $or: [
+        { seasonId: { $in: activeSeasonIds } }, // Belongs to an active season
+        { seasonId: null } // No season assigned
+      ]
+    };
+
     // Ana sorgu
-    const schedules = await Schedule.find(dateFilter)
-      .populate('courseId', 'name')
-      .populate('teacherId', 'name email')
+    const schedules = await Schedule.find(query)
+      .populate('teacherId', 'firstName lastName email')
       .populate('locationId', 'name')
       .populate('courseTypeId', 'name')
+      .populate('seasonId', 'name')
       .sort({ date: 1, startTime: 1 })
       .lean();
 
     // Yanıtı hazırla
     const formattedSchedules = schedules.map(schedule => ({
       id: schedule._id.toString(),
-      courseId: schedule.courseId._id.toString(),
-      courseName: schedule.courseId.name,
       teacherId: schedule.teacherId._id.toString(),
       teacherName: schedule.teacherId.name,
       teacherEmail: schedule.teacherId.email,
@@ -55,10 +67,13 @@ exports.getAllSchedules = async (req, res) => {
       locationName: schedule.locationId.name,
       courseTypeId: schedule.courseTypeId._id.toString(),
       type: schedule.courseTypeId.name,
+      seasonId: schedule.seasonId ? schedule.seasonId._id.toString() : null,
+      seasonName: schedule.seasonId ? schedule.seasonId.name : null,
       date: schedule.date,
       startTime: schedule.startTime,
       endTime: schedule.endTime,
       subject: schedule.subject,
+      isChecked: schedule.isChecked,
       createdAt: schedule.createdAt,
       updatedAt: schedule.updatedAt
     }));
@@ -80,10 +95,10 @@ exports.getScheduleById = async (req, res) => {
     }
 
     const schedule = await Schedule.findById(id)
-      .populate('courseId', 'name')
-      .populate('teacherId', 'name email')
+      .populate('teacherId', 'firstName lastName email')
       .populate('locationId', 'name')
       .populate('courseTypeId', 'name')
+      .populate('seasonId', 'name')
       .lean();
 
     if (!schedule) {
@@ -93,8 +108,6 @@ exports.getScheduleById = async (req, res) => {
     // Formatı hazırla
     const formattedSchedule = {
       id: schedule._id.toString(),
-      courseId: schedule.courseId._id.toString(),
-      courseName: schedule.courseId.name,
       teacherId: schedule.teacherId._id.toString(),
       teacherName: schedule.teacherId.name,
       teacherEmail: schedule.teacherId.email,
@@ -102,10 +115,13 @@ exports.getScheduleById = async (req, res) => {
       locationName: schedule.locationId.name,
       courseTypeId: schedule.courseTypeId._id.toString(),
       type: schedule.courseTypeId.name,
+      seasonId: schedule.seasonId ? schedule.seasonId._id.toString() : null,
+      seasonName: schedule.seasonId ? schedule.seasonId.name : null,
       date: schedule.date,
       startTime: schedule.startTime,
       endTime: schedule.endTime,
       subject: schedule.subject,
+      isChecked: schedule.isChecked,
       createdAt: schedule.createdAt,
       updatedAt: schedule.updatedAt
     };
@@ -120,33 +136,37 @@ exports.getScheduleById = async (req, res) => {
 // Yeni ders programı kaydı oluştur
 exports.createSchedule = async (req, res) => {
   try {
-    const { courseId, teacherId, locationId, courseTypeId, date, startTime, endTime, subject } = req.body;
+    const { teacherId, locationId, courseTypeId, seasonId, date, startTime, endTime, subject } = req.body;
 
     // Gerekli alanların kontrolü
-    if (!courseId || !teacherId || !locationId || !courseTypeId || !date || !startTime || !endTime || !subject) {
+    if (!teacherId || !locationId || !courseTypeId || !date || !startTime || !endTime || !subject) {
       return res.status(400).json({
         message: 'Tüm alanları doldurmanız gerekmektedir.'
       });
     }
 
     // ObjectID formatlarını doğrula
-    if (!mongoose.Types.ObjectId.isValid(courseId) ||
-        !mongoose.Types.ObjectId.isValid(teacherId) ||
+    if (!mongoose.Types.ObjectId.isValid(teacherId) ||
         !mongoose.Types.ObjectId.isValid(locationId) ||
-        !mongoose.Types.ObjectId.isValid(courseTypeId)) {
+        !mongoose.Types.ObjectId.isValid(courseTypeId) ||
+        (seasonId && !mongoose.Types.ObjectId.isValid(seasonId))) {
       return res.status(400).json({ message: 'Geçersiz ID formatı.' });
     }
 
     // İlişkili kayıtların varlığını kontrol et
-    const [courseExists, teacherExists, locationExists, courseTypeExists] = await Promise.all([
-      Schedule.db.model('Course').exists({ _id: courseId }),
+    const [teacherExists, locationExists, courseTypeExists] = await Promise.all([
       User.exists({ _id: teacherId, role: 'teacher' }),
       Location.exists({ _id: locationId }),
       CourseType.exists({ _id: courseTypeId })
     ]);
 
-    if (!courseExists) {
-      return res.status(400).json({ message: 'Seçilen ders bulunamadı.' });
+    // Sezon varlığını kontrol et (eğer belirtilmişse)
+    let seasonExists = true;
+    if (seasonId) {
+      seasonExists = await Schedule.db.model('Season').exists({ _id: seasonId });
+      if (!seasonExists) {
+        return res.status(400).json({ message: 'Seçilen sezon bulunamadı.' });
+      }
     }
 
     if (!teacherExists) {
@@ -192,10 +212,10 @@ exports.createSchedule = async (req, res) => {
 
     // Yeni ders programı oluştur
     const schedule = new Schedule({
-      courseId,
       teacherId,
       locationId,
       courseTypeId,
+      seasonId: seasonId || null,
       date,
       startTime,
       endTime,
@@ -206,7 +226,6 @@ exports.createSchedule = async (req, res) => {
 
     // İlişkili verileri çekip yanıtla
     const savedSchedule = await Schedule.findById(schedule._id)
-      .populate('courseId', 'name')
       .populate('teacherId', 'name email')
       .populate('locationId', 'name')
       .populate('courseTypeId', 'name')
@@ -215,8 +234,6 @@ exports.createSchedule = async (req, res) => {
     // Dönüş formatını hazırla
     const formattedSchedule = {
       id: savedSchedule._id.toString(),
-      courseId: savedSchedule.courseId._id.toString(),
-      courseName: savedSchedule.courseId.name,
       teacherId: savedSchedule.teacherId._id.toString(),
       teacherName: savedSchedule.teacherId.name,
       teacherEmail: savedSchedule.teacherId.email,
@@ -224,10 +241,13 @@ exports.createSchedule = async (req, res) => {
       locationName: savedSchedule.locationId.name,
       courseTypeId: savedSchedule.courseTypeId._id.toString(),
       type: savedSchedule.courseTypeId.name,
+      seasonId: savedSchedule.seasonId ? savedSchedule.seasonId._id.toString() : null,
+      seasonName: savedSchedule.seasonId ? savedSchedule.seasonId.name : null,
       date: savedSchedule.date,
       startTime: savedSchedule.startTime,
       endTime: savedSchedule.endTime,
       subject: savedSchedule.subject,
+      isChecked: savedSchedule.isChecked,
       createdAt: savedSchedule.createdAt,
       updatedAt: savedSchedule.updatedAt
     };
@@ -246,42 +266,48 @@ exports.createSchedule = async (req, res) => {
 exports.updateSchedule = async (req, res) => {
   try {
     const { id } = req.params;
-    const { courseId, teacherId, locationId, courseTypeId, date, startTime, endTime, subject } = req.body;
+    const { teacherId, locationId, courseTypeId, seasonId, date, startTime, endTime, subject } = req.body;
 
+    // ID formatı doğrulama
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ message: 'Geçersiz ID formatı.' });
     }
 
     // Gerekli alanların kontrolü
-    if (!courseId || !teacherId || !locationId || !courseTypeId || !date || !startTime || !endTime || !subject) {
+    if (!teacherId || !locationId || !courseTypeId || !date || !startTime || !endTime || !subject) {
       return res.status(400).json({
         message: 'Tüm alanları doldurmanız gerekmektedir.'
       });
     }
 
-    // ObjectID formatlarını doğrula
-    if (!mongoose.Types.ObjectId.isValid(courseId) ||
-        !mongoose.Types.ObjectId.isValid(teacherId) ||
+    // İlgili ID'lerin geçerliliğini kontrol et
+    if (!mongoose.Types.ObjectId.isValid(teacherId) ||
         !mongoose.Types.ObjectId.isValid(locationId) ||
-        !mongoose.Types.ObjectId.isValid(courseTypeId)) {
+        !mongoose.Types.ObjectId.isValid(courseTypeId) ||
+        (seasonId && !mongoose.Types.ObjectId.isValid(seasonId))) {
       return res.status(400).json({ message: 'Geçersiz ID formatı.' });
     }
 
+    // Kaydın var olup olmadığını kontrol et
+    const scheduleExists = await Schedule.findById(id);
+    if (!scheduleExists) {
+      return res.status(404).json({ message: 'Güncellenecek ders programı kaydı bulunamadı.' });
+    }
+
     // İlişkili kayıtların varlığını kontrol et
-    const [scheduleExists, courseExists, teacherExists, locationExists, courseTypeExists] = await Promise.all([
-      Schedule.exists({ _id: id }),
-      Schedule.db.model('Course').exists({ _id: courseId }),
+    const [teacherExists, locationExists, courseTypeExists] = await Promise.all([
       User.exists({ _id: teacherId, role: 'teacher' }),
       Location.exists({ _id: locationId }),
       CourseType.exists({ _id: courseTypeId })
     ]);
 
-    if (!scheduleExists) {
-      return res.status(404).json({ message: 'Güncellenmek istenen ders programı kaydı bulunamadı.' });
-    }
-
-    if (!courseExists) {
-      return res.status(400).json({ message: 'Seçilen ders bulunamadı.' });
+    // Sezon varlığını kontrol et (eğer belirtilmişse)
+    let seasonExists = true;
+    if (seasonId) {
+      seasonExists = await Schedule.db.model('Season').exists({ _id: seasonId });
+      if (!seasonExists) {
+        return res.status(400).json({ message: 'Seçilen sezon bulunamadı.' });
+      }
     }
 
     if (!teacherExists) {
@@ -325,22 +351,20 @@ exports.updateSchedule = async (req, res) => {
       });
     }
 
-    // Güncelleme
-    const updatedSchedule = await Schedule.findByIdAndUpdate(
-      id,
-      {
-        courseId,
-        teacherId,
-        locationId,
-        courseTypeId,
-        date,
-        startTime,
-        endTime,
-        subject
-      },
-      { new: true, runValidators: true }
-    )
-      .populate('courseId', 'name')
+    // Programı güncelle
+    scheduleExists.teacherId = teacherId;
+    scheduleExists.locationId = locationId;
+    scheduleExists.courseTypeId = courseTypeId;
+    scheduleExists.seasonId = seasonId || null;
+    scheduleExists.date = date;
+    scheduleExists.startTime = startTime;
+    scheduleExists.endTime = endTime;
+    scheduleExists.subject = subject;
+
+    await scheduleExists.save();
+
+    // İlişkili verileri çekip yanıtla
+    const updatedSchedule = await Schedule.findById(id)
       .populate('teacherId', 'name email')
       .populate('locationId', 'name')
       .populate('courseTypeId', 'name')
@@ -349,8 +373,6 @@ exports.updateSchedule = async (req, res) => {
     // Dönüş formatını hazırla
     const formattedSchedule = {
       id: updatedSchedule._id.toString(),
-      courseId: updatedSchedule.courseId._id.toString(),
-      courseName: updatedSchedule.courseId.name,
       teacherId: updatedSchedule.teacherId._id.toString(),
       teacherName: updatedSchedule.teacherId.name,
       teacherEmail: updatedSchedule.teacherId.email,
@@ -358,10 +380,13 @@ exports.updateSchedule = async (req, res) => {
       locationName: updatedSchedule.locationId.name,
       courseTypeId: updatedSchedule.courseTypeId._id.toString(),
       type: updatedSchedule.courseTypeId.name,
+      seasonId: updatedSchedule.seasonId ? updatedSchedule.seasonId._id.toString() : null,
+      seasonName: updatedSchedule.seasonId ? updatedSchedule.seasonId.name : null,
       date: updatedSchedule.date,
       startTime: updatedSchedule.startTime,
       endTime: updatedSchedule.endTime,
       subject: updatedSchedule.subject,
+      isChecked: updatedSchedule.isChecked,
       createdAt: updatedSchedule.createdAt,
       updatedAt: updatedSchedule.updatedAt
     };
@@ -398,6 +423,64 @@ exports.deleteSchedule = async (req, res) => {
   } catch (error) {
     console.error('Delete schedule error:', error);
     res.status(500).json({ message: 'Ders programı silinirken bir hata oluştu.' });
+  }
+};
+
+// Ders kontrol durumunu değiştir
+exports.toggleCheckStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: 'Geçersiz ID formatı.' });
+    }
+
+    const schedule = await Schedule.findById(id);
+
+    if (!schedule) {
+      return res.status(404).json({ message: 'Ders kaydı bulunamadı.' });
+    }
+
+    // Kontrol durumunu tersine çevir
+    schedule.isChecked = !schedule.isChecked;
+    await schedule.save();
+
+    // İlişkili verileri çekip yanıtla
+    const updatedSchedule = await Schedule.findById(id)
+      .populate('teacherId', 'firstName lastName email')
+      .populate('locationId', 'name')
+      .populate('courseTypeId', 'name')
+      .populate('seasonId', 'name')
+      .lean();
+
+    // Dönüş formatını hazırla
+    const formattedSchedule = {
+      id: updatedSchedule._id.toString(),
+      teacherId: updatedSchedule.teacherId._id.toString(),
+      teacherName: `${updatedSchedule.teacherId.firstName || ''} ${updatedSchedule.teacherId.lastName || ''}`.trim(),
+      teacherEmail: updatedSchedule.teacherId.email,
+      locationId: updatedSchedule.locationId._id.toString(),
+      locationName: updatedSchedule.locationId.name,
+      courseTypeId: updatedSchedule.courseTypeId._id.toString(),
+      type: updatedSchedule.courseTypeId.name,
+      seasonId: updatedSchedule.seasonId ? updatedSchedule.seasonId._id.toString() : null,
+      seasonName: updatedSchedule.seasonId ? updatedSchedule.seasonId.name : null,
+      date: updatedSchedule.date,
+      startTime: updatedSchedule.startTime,
+      endTime: updatedSchedule.endTime,
+      subject: updatedSchedule.subject,
+      isChecked: updatedSchedule.isChecked,
+      createdAt: updatedSchedule.createdAt,
+      updatedAt: updatedSchedule.updatedAt
+    };
+
+    res.json({
+      message: schedule.isChecked ? 'Ders kontrol edildi olarak işaretlendi.' : 'Ders kontrol edilmedi olarak işaretlendi.',
+      schedule: formattedSchedule
+    });
+  } catch (error) {
+    console.error('Toggle check status error:', error);
+    res.status(500).json({ message: 'Ders kontrol durumu değiştirilirken bir hata oluştu.' });
   }
 };
 
@@ -573,5 +656,156 @@ exports.checkTeacherLeave = async (req, res) => {
     res.status(500).json({
       message: 'Müəllim icazə yoxlaması zamanı xəta baş verdi'
     });
+  }
+};
+
+// Get all completed lessons
+exports.getCompletedLessons = async (req, res) => {
+  try {
+    console.log('Getting completed lessons');
+
+    // Find all lessons where isChecked is true
+    const completedLessons = await Schedule.find({ isChecked: true })
+      .populate('teacherId', 'firstName lastName email')
+      .populate('locationId', 'name')
+      .populate('courseTypeId', 'name')
+      .populate('seasonId', 'name')
+      .lean();
+
+    console.log(`Found ${completedLessons.length} completed lessons`);
+
+    // Format the response - handle possible null values
+    const formattedLessons = completedLessons.map(lesson => {
+      // Ensure teacher exists before accessing properties
+      const teacherId = lesson.teacherId ? lesson.teacherId._id.toString() : null;
+      const teacherName = lesson.teacherId
+        ? `${lesson.teacherId.firstName || ''} ${lesson.teacherId.lastName || ''}`.trim()
+        : 'Unknown Teacher';
+
+      // Ensure location exists
+      const locationId = lesson.locationId ? lesson.locationId._id.toString() : null;
+      const locationName = lesson.locationId ? lesson.locationId.name : 'Unknown Location';
+
+      // Ensure courseType exists
+      const courseTypeId = lesson.courseTypeId ? lesson.courseTypeId._id.toString() : null;
+      const courseTypeName = lesson.courseTypeId ? lesson.courseTypeId.name : 'Unknown Type';
+
+      return {
+        id: lesson._id.toString(),
+        teacherId,
+        teacherName,
+        locationId,
+        locationName,
+        courseTypeId,
+        type: courseTypeName,
+        seasonId: lesson.seasonId ? lesson.seasonId._id.toString() : null,
+        seasonName: lesson.seasonId ? lesson.seasonId.name : null,
+        date: lesson.date,
+        startTime: lesson.startTime,
+        endTime: lesson.endTime,
+        subject: lesson.subject,
+        isChecked: lesson.isChecked,
+        createdAt: lesson.createdAt,
+        updatedAt: lesson.updatedAt
+      };
+    });
+
+    res.json({
+      completedLessons: formattedLessons
+    });
+  } catch (error) {
+    console.error('Get completed lessons error:', error);
+    res.status(500).json({ message: 'Tamamlanan dərsləri gətirərkən xəta baş verdi.' });
+  }
+};
+
+// Update lesson completion status (for teachers - time restricted)
+exports.updateLessonCompletion = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { completed, completedAt, completedBy } = req.body;
+
+    console.log(`Updating lesson completion: id=${id}, completed=${completed}, by=${completedBy}`);
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      console.log('Invalid ID format:', id);
+      return res.status(400).json({ message: 'Geçersiz ID formatı.' });
+    }
+
+    const schedule = await Schedule.findById(id);
+
+    if (!schedule) {
+      console.log('Lesson not found:', id);
+      return res.status(404).json({ message: 'Ders kaydı bulunamadı.' });
+    }
+
+    // Log the authentication details for debugging
+    console.log('User info:', req.user
+      ? {
+        id: req.user.id,
+        role: req.user.role
+      }
+      : 'No user found in request');
+    console.log('Lesson teacherId:', schedule.teacherId.toString());
+
+    // Only allow teacher to update their own lessons
+    if (req.user && req.user.role === 'teacher' &&
+        schedule.teacherId.toString() !== req.user.id.toString()) {
+      console.log('Teacher permission denied - not their lesson');
+      return res.status(403).json({
+        message: 'Bu dərsi yalnız dərsin müəllimi tamamlaya bilər.'
+      });
+    }
+
+    // Update completion status
+    schedule.isChecked = completed;
+
+    // If we have additional metadata, save it too
+    if (completed && completedAt) {
+      // We could store this in additional fields if needed
+      // Here we're just updating the isChecked field for now
+      console.log('Completed at:', completedAt);
+    }
+
+    await schedule.save();
+    console.log('Lesson completion status updated successfully');
+
+    // Return the updated schedule
+    const updatedSchedule = await Schedule.findById(id)
+      .populate('teacherId', 'firstName lastName email')
+      .populate('locationId', 'name')
+      .populate('courseTypeId', 'name')
+      .populate('seasonId', 'name')
+      .lean();
+
+    // Format the response - handle possible null values
+    const formattedSchedule = {
+      id: updatedSchedule._id.toString(),
+      teacherId: updatedSchedule.teacherId ? updatedSchedule.teacherId._id.toString() : null,
+      teacherName: updatedSchedule.teacherId
+        ? `${updatedSchedule.teacherId.firstName || ''} ${updatedSchedule.teacherId.lastName || ''}`.trim()
+        : 'Unknown Teacher',
+      locationId: updatedSchedule.locationId ? updatedSchedule.locationId._id.toString() : null,
+      locationName: updatedSchedule.locationId ? updatedSchedule.locationId.name : 'Unknown Location',
+      courseTypeId: updatedSchedule.courseTypeId ? updatedSchedule.courseTypeId._id.toString() : null,
+      type: updatedSchedule.courseTypeId ? updatedSchedule.courseTypeId.name : 'Unknown Type',
+      seasonId: updatedSchedule.seasonId ? updatedSchedule.seasonId._id.toString() : null,
+      seasonName: updatedSchedule.seasonId ? updatedSchedule.seasonId.name : null,
+      date: updatedSchedule.date,
+      startTime: updatedSchedule.startTime,
+      endTime: updatedSchedule.endTime,
+      subject: updatedSchedule.subject,
+      isChecked: updatedSchedule.isChecked,
+      createdAt: updatedSchedule.createdAt,
+      updatedAt: updatedSchedule.updatedAt
+    };
+
+    res.json({
+      message: completed ? 'Dərs uğurla tamamlandı.' : 'Dərs tamamlanmamış olaraq işarələndi.',
+      schedule: formattedSchedule
+    });
+  } catch (error) {
+    console.error('Update lesson completion error:', error);
+    res.status(500).json({ message: 'Dərs tamamlama statusu yenilənərkən xəta baş verdi.' });
   }
 };

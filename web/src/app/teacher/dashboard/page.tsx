@@ -5,19 +5,21 @@ import { User as UserIcon, Calendar, MapPin, Clock, BookOpen, GraduationCap, Mai
 import { useRouter } from 'next/navigation';
 import { useAppSelector, useAppDispatch } from '@/redux/hooks';
 import { fetchSchedules } from '@/redux/slices/scheduleSlice';
-import { fetchCourses } from '@/redux/slices/courseSlice';
 import { fetchLocations } from '@/redux/slices/locationSlice';
 import { fetchCourseTypes } from '@/redux/slices/courseTypeSlice';
 import { logout } from '@/redux/slices/authSlice';
 import api from '@/services/api';
+import { Schedule } from '@/redux/types';
+
+
 
 // Define TypeScript interfaces to replace 'any' types
 interface Lesson {
   id: string;
   _id?: string;
   teacherId: string;
-  courseId: string;
-  courseName: string;
+  courseId?: string;
+  courseName?: string;
   locationId: string;
   locationName?: string;
   date: string;
@@ -27,6 +29,8 @@ interface Lesson {
   courseTypeId?: string;
   subject?: string;
   notes?: string;
+  isChecked?: boolean;
+  seasonName?: string;
 }
 
 interface CourseType {
@@ -59,11 +63,7 @@ interface User {
   department?: string;
 }
 
-interface Course {
-  id: string;
-  _id?: string;
-  name: string;
-}
+
 
 // Helper function to get type color - update to use courseTypes from state
 const getTypeColor = (typeId: string, courseTypes: CourseType[] = []) => {
@@ -131,7 +131,7 @@ const formatDateForAPI = (date: Date) => {
 };
 
 // Check if two lessons overlap
-const checkOverlap = (lesson1: Lesson, lesson2: Lesson) => {
+const checkOverlap = (lesson1: Lesson | Schedule, lesson2: Lesson | Schedule) => {
   if (lesson1.id === lesson2.id) return false;
   
   // Check if both lessons occur on the same date
@@ -174,6 +174,37 @@ const isTeacherMatch = (teacherId: string, user: User | null) => {
   return teacherId === user.id || teacherId === user._id;
 };
 
+
+
+// Helper function to check if current time is within lesson time
+const isWithinLessonTime = (lesson: Lesson | Schedule): boolean => {
+  if (!lesson.date || !lesson.startTime || !lesson.endTime) return false;
+  
+  const now = new Date();
+  const lessonDate = new Date(lesson.date);
+  
+  // Check if the lesson is today
+  if (lessonDate.getDate() !== now.getDate() || 
+      lessonDate.getMonth() !== now.getMonth() || 
+      lessonDate.getFullYear() !== now.getFullYear()) {
+    return false;
+  }
+  
+  // Convert lesson time to minutes since midnight
+  const [startHours, startMinutes] = lesson.startTime.split(':').map(Number);
+  const [endHours, endMinutes] = lesson.endTime.split(':').map(Number);
+  const startTimeMinutes = startHours * 60 + startMinutes;
+  const endTimeMinutes = endHours * 60 + endMinutes;
+  
+  // Convert current time to minutes since midnight
+  const currentHours = now.getHours();
+  const currentMinutes = now.getMinutes();
+  const currentTimeMinutes = currentHours * 60 + currentMinutes;
+  
+  // Check if current time is within lesson time
+  return currentTimeMinutes >= startTimeMinutes && currentTimeMinutes <= endTimeMinutes;
+};
+
 export default function TeacherDashboard() {
   const router = useRouter();
   const dispatch = useAppDispatch();
@@ -181,11 +212,21 @@ export default function TeacherDashboard() {
   const [currentWeekOffset, setCurrentWeekOffset] = useState(0);
   const [selectedLesson, setSelectedLesson] = useState<Lesson | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [completedLessons, setCompletedLessons] = useState<Set<string>>(new Set());
+  const [lessonUpdateLoading, setLessonUpdateLoading] = useState(false);
+  const [snackbar, setSnackbar] = useState<{
+    open: boolean;
+    message: string;
+    type: 'success' | 'error';
+  }>({
+    open: false,
+    message: '',
+    type: 'success',
+  });
   
   // Redux state'leri
   const { user, isAuthenticated } = useAppSelector((state) => state.auth);
   const { schedules, isLoading: schedulesLoading } = useAppSelector((state) => state.schedules);
-  const { courses } = useAppSelector((state) => state.courses);
   const { locations } = useAppSelector((state) => state.locations);
   const { courseTypes } = useAppSelector((state) => state.courseTypes);
   
@@ -196,6 +237,73 @@ export default function TeacherDashboard() {
   // Track teacher leaves
   const [teacherLeaves, setTeacherLeaves] = useState<Leave[]>([]);
   const [loadingLeaves, setLoadingLeaves] = useState(false);
+  
+  // Show snackbar function
+  const showSnackbar = (message: string, type: 'success' | 'error' = 'success') => {
+    setSnackbar({ open: true, message, type });
+    // Auto-hide after 3 seconds
+    setTimeout(() => {
+      setSnackbar(prev => ({ ...prev, open: false }));
+    }, 3000);
+  };
+
+  // Load completed lessons from database on initial render
+  useEffect(() => {
+    if (user?.id) {
+      try {
+        const fetchCompletedLessons = async () => {
+          try {
+            console.log('Fetching completed lessons for teacher:', user.id);
+            
+            // Direkt tamamlanmış dersleri çekmek yerine, tüm dersleri çekip filtreleme yapıyoruz
+            // /schedules/completed endpoint'i 400 hatası veriyor
+            try {
+              // Öğretmenin tüm derslerini çek
+              const lessonsResponse = await api.get<{ schedules: Lesson[] }>('/schedules');
+              
+              if (lessonsResponse.data && lessonsResponse.data.schedules) {
+                // Önce öğretmenin derslerini filtrele
+                const teacherLessons = lessonsResponse.data.schedules.filter(
+                  lesson => isTeacherMatch(lesson.teacherId, user)
+                );
+                
+                // Sonra tamamlanmış dersleri filtrele (isChecked = true olanlar)
+                const completedLessons = teacherLessons
+                  .filter(lesson => lesson.isChecked)
+                  .map(lesson => lesson.id);
+                
+                setCompletedLessons(new Set(completedLessons));
+                console.log('Found completed lessons:', completedLessons.length);
+              }
+            } catch (apiError) {
+              console.error('API error fetching lessons:', apiError);
+              
+              // Fallback - localStorage kontrolü
+              console.log('Falling back to localStorage for completed lessons');
+              const savedLessons = localStorage.getItem(`completedLessons_${user.id}`);
+              if (savedLessons) {
+                setCompletedLessons(new Set(JSON.parse(savedLessons)));
+                console.log('Loaded completed lessons from localStorage');
+              } else {
+                console.log('No saved completed lessons found in localStorage');
+              }
+            }
+          } catch (error) {
+            console.error('Error loading completed lessons:', error);
+            // Fallback to localStorage if API fails
+            const savedLessons = localStorage.getItem(`completedLessons_${user.id}`);
+            if (savedLessons) {
+              setCompletedLessons(new Set(JSON.parse(savedLessons)));
+            }
+          }
+        };
+        
+        fetchCompletedLessons();
+      } catch (error) {
+        console.error('Error initializing completed lessons fetch:', error);
+      }
+    }
+  }, [user]);
   
   // Handle logout
   const handleLogout = () => {
@@ -246,7 +354,7 @@ export default function TeacherDashboard() {
       startDate: formatDateForAPI(weekDates[0]),
       endDate: formatDateForAPI(weekDates[6])
     };
-  }, [currentWeekOffset]);
+  }, [currentWeekOffset, weekDates]);
   
   // Get current month date range for monthly stats
   const monthDateParams = useMemo(() => {
@@ -277,7 +385,6 @@ export default function TeacherDashboard() {
           
           await dispatch(fetchSchedules(weekDateParams));
           
-          if (courses.length === 0) await dispatch(fetchCourses());
           if (locations.length === 0) await dispatch(fetchLocations());
           if (courseTypes.length === 0) await dispatch(fetchCourseTypes());
           
@@ -290,7 +397,7 @@ export default function TeacherDashboard() {
       
       loadData();
     }
-  }, [dispatch, user, isAuthenticated, weekDateParams, courses.length, locations.length, courseTypes.length]);
+  }, [dispatch, user, isAuthenticated, weekDateParams,  locations.length, courseTypes.length]);
   
   // Separate effect to load monthly data only once on initial load
   useEffect(() => {
@@ -385,8 +492,8 @@ export default function TeacherDashboard() {
   };
   
   // Show lesson details when clicked
-  const handleLessonClick = (lesson: Lesson) => {
-    setSelectedLesson(lesson);
+  const handleLessonClick = (lesson: Lesson | Schedule) => {
+    setSelectedLesson(lesson as Lesson);
   };
   
   // Close details modal
@@ -402,6 +509,8 @@ export default function TeacherDashboard() {
   // Since we're already fetching weekly data, we can use teacherLessons as currentWeekLessons
   const currentWeekLessons = teacherLessons;
   
+
+  
   // Count lessons by type for the current week and month
   const lessonCounts = {
     total: currentWeekLessons.length,
@@ -411,18 +520,6 @@ export default function TeacherDashboard() {
     monthTotal: monthlyLessons.length
   };
   
-  // Get all unique courses for this teacher
-  const uniqueCourses = Array.from(new Set(teacherLessons.map(lesson => lesson.courseId)))
-    .map(courseId => {
-      const lesson = teacherLessons.find(l => l.courseId === courseId);
-      const course = courses.find((c: Course) => c.id === courseId || c._id === courseId);
-      
-      return {
-        id: courseId,
-        name: lesson?.courseName || course?.name || 'Bilinmeyen Ders'
-      };
-    });
-
   // Format date for leaves display
   const formatLeaveDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('tr-TR', {
@@ -461,6 +558,75 @@ export default function TeacherDashboard() {
     return Object.values(stats).sort((a, b) => b.count - a.count);
   }, [currentWeekLessons, courseTypes]);
 
+  // Handle lesson completion toggle
+  const handleLessonCompletion = async (lessonId: string, isCompleted: boolean) => {
+    // Find the lesson
+    const lesson = teacherLessons.find(l => l.id === lessonId);
+    
+    if (!lesson) {
+      console.error('Lesson not found:', lessonId);
+      return;
+    }
+    
+    // Check if the teacher can mark this lesson as completed (within lesson time)
+    if (isCompleted && !isWithinLessonTime(lesson)) {
+      alert('Dərsi yalnız dərs saatları ərzində tamamlaya bilərsiniz!');
+      return;
+    }
+    
+    setLessonUpdateLoading(true);
+    
+    try {
+      console.log(`Updating lesson completion status for lesson ${lessonId} to ${isCompleted}`);
+      
+      // Update the lesson completion status in the database
+      const response = await api.put(`/schedules/${lessonId}/completion`, {
+        completed: isCompleted,
+        completedAt: isCompleted ? new Date().toISOString() : null,
+        completedBy: user?.id || (user as User)?._id
+      });
+      
+      console.log('Lesson completion update response:', response.data);
+      
+      // Update local state
+      setCompletedLessons(prev => {
+        const newSet = new Set(prev);
+        if (isCompleted) {
+          newSet.add(lessonId);
+        } else {
+          newSet.delete(lessonId);
+        }
+        
+        // Also update localStorage as a backup
+        if (user?.id) {
+          try {
+            localStorage.setItem(`completedLessons_${user.id}`, JSON.stringify([...newSet]));
+          } catch (error: unknown) {
+            console.error('Error saving completed lessons to localStorage:', error);
+          }
+        }
+        
+        return newSet;
+      });
+      
+      showSnackbar(
+        isCompleted ? 'Dərs uğurla tamamlandı!' : 'Dərs tamamlanmamış kimi işarələndi.',
+        'success'
+      );
+    } catch (error: unknown) {
+      console.error('Error updating lesson completion status:', error);
+      // Show more detailed error message
+      let errorMessage = 'Dərs statusu yenilənərkən xəta baş verdi.';
+      if (error && typeof error === 'object' && 'response' in error && error.response && typeof error.response === 'object' && 'data' in error.response) {
+        const responseData = error.response.data as { message?: string };
+        errorMessage = responseData.message || errorMessage;
+      }
+      showSnackbar(errorMessage, 'error');
+    } finally {
+      setLessonUpdateLoading(false);
+    }
+  };
+
   // Loading state
   if (isLoading || schedulesLoading) {
     return (
@@ -478,17 +644,19 @@ export default function TeacherDashboard() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Müəllim Paneli</h1>
         
-        <button
-          onClick={handleLogout}
-          className="rounded-lg bg-red-600 text-white px-4 py-2 hover:bg-red-700 transition-colors flex items-center gap-2"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-            <polyline points="16 17 21 12 16 7" />
-            <line x1="21" y1="12" x2="9" y2="12" />
-          </svg>
-          Çıxış
-        </button>
+        <div className="flex gap-3">
+          <button
+            onClick={handleLogout}
+            className="rounded-lg bg-red-600 text-white px-4 py-2 hover:bg-red-700 transition-colors flex items-center gap-2"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+              <polyline points="16 17 21 12 16 7" />
+              <line x1="21" y1="12" x2="9" y2="12" />
+            </svg>
+            Çıxış
+          </button>
+        </div>
       </div>
       
       {/* Teacher Profile Card */}
@@ -524,10 +692,10 @@ export default function TeacherDashboard() {
           </div>
           
           <div className="flex-shrink-0 flex flex-col gap-2 p-4 bg-blue-50 rounded-lg">
-            <h3 className="font-semibold text-blue-800">Ders İstatistikleri</h3>
+            <h3 className="font-semibold text-blue-800">Ders İstatistikalari</h3>
             <div className="grid grid-cols-2 gap-4 text-center">
               <div className="bg-white p-3 rounded-lg">
-                <p className="text-sm text-gray-600">Bu Hafta</p>
+                <p className="text-sm text-gray-600">Bu Həftəki Dərsləriniz</p>
                 <p className="text-2xl font-bold text-blue-600">{lessonCounts.total}</p>
               </div>
               
@@ -538,7 +706,7 @@ export default function TeacherDashboard() {
                 </div>
               ) : (
                 <div className="bg-white p-3 rounded-lg">
-                  <p className="text-sm text-gray-600">Bu Ay</p>
+                  <p className="text-sm text-gray-600">Bu Ayki Dərsləriniz</p>
                   <p className="text-2xl font-bold text-blue-600">{lessonCounts.monthTotal}</p>
                 </div>
               )}
@@ -567,27 +735,7 @@ export default function TeacherDashboard() {
         </div>
       </div>
       
-      {/* Courses Taught */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <h2 className="text-lg font-semibold mb-4 text-gray-800">Verdiğim Dersler</h2>
-        {uniqueCourses.length === 0 ? (
-          <p className="text-gray-500 text-center py-4">Henüz atanmış ders bulunmamaktadır.</p>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {uniqueCourses.map(course => (
-              <div key={course.id} className="bg-blue-50 rounded-lg p-4 flex items-center gap-3">
-                <BookOpen className="text-blue-500" size={24} />
-                <div>
-                  <div className="font-semibold text-gray-800">{course.name}</div>
-                  <div className="text-sm text-gray-600">
-                    {teacherLessons.filter(l => l.courseId === course.id).length} Ders
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+     
       
       {/* Teacher Leaves Section */}
       <div className="bg-white rounded-lg shadow p-6">
@@ -599,7 +747,7 @@ export default function TeacherDashboard() {
             <span className="text-gray-600">Mezuniyet bilgileri yükleniyor...</span>
           </div>
         ) : teacherLeaves.length === 0 ? (
-          <p className="text-gray-500 text-center py-4">Aktif veya gelecekte planlanmış mezuniyet bulunmamaktadır.</p>
+          <p className="text-gray-500 text-center py-4">Aktif vəya gələcəktə planlanmış məzuniyyət tapılmadı</p>
         ) : (
           <div className="overflow-hidden rounded-lg border border-gray-200">
             <table className="w-full text-left text-sm text-gray-800">
@@ -671,7 +819,7 @@ export default function TeacherDashboard() {
           disabled={isLoading || schedulesLoading}
         >
           <ChevronLeft size={20} />
-          <span>Önceki Hafta</span>
+          <span>Əvvəlki Həftə</span>
         </button>
         
         <div className="text-center">
@@ -685,7 +833,7 @@ export default function TeacherDashboard() {
                 className="text-sm text-blue-600 hover:text-blue-800"
                 disabled={isLoading || schedulesLoading}
               >
-                Bugüne Dön
+                Bugüne Qayıt
               </button>
             )}
             {(isLoading || schedulesLoading) && (
@@ -801,6 +949,10 @@ export default function TeacherDashboard() {
                         const heightPerLesson = 60; // pixels
                         const topOffset = positionInGroup * heightPerLesson;
                         
+                        // Check if the lesson is completed
+                        const isCompleted = completedLessons.has(lesson.id);
+                        
+                        // Determine type color based on lesson type
                         let typeColor = '';
                         switch(lesson.type) {
                           case 'lecture':
@@ -819,18 +971,29 @@ export default function TeacherDashboard() {
                         return (
                           <div
                             key={lesson.id}
-                            className={`absolute rounded-md py-1 px-2 shadow-sm hover:shadow-md transition-shadow cursor-pointer border-l-4 ${typeColor}`}
+                            className={`absolute rounded-md py-1 px-2 shadow-sm hover:shadow-md transition-shadow cursor-pointer border-l-4 ${typeColor} ${isCompleted ? 'ring-2 ring-green-500' : ''}`}
                             style={{ 
                               left, 
                               width, 
                               top: `${topOffset}px`,
                               height: `${heightPerLesson - 2}px`,
-                              zIndex: positionInGroup + 1
+                              zIndex: positionInGroup + 1,
+                              maxHeight: `${heightPerLesson - 2}px` // Ensure consistent height
                             }}
                             onClick={() => handleLessonClick(lesson)}
                           >
-                            <div className="overflow-hidden text-xs">
-                              <div className="font-bold truncate">{lesson.courseName}</div>
+                            <div className="relative overflow-hidden text-xs">
+                              {/* Check mark indicator for completed lessons */}
+                              {isCompleted && (
+                                <div className="absolute right-0 bottom-0 bg-green-500 rounded-full p-0.5" title="Tamamlanan dərs">
+                                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" 
+                                    stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                                    <polyline points="20 6 9 17 4 12"></polyline>
+                                  </svg>
+                                </div>
+                              )}
+                              
+                              <div className="font-bold truncate">{lesson.subject || "Unnamed Course"}</div>
                               <div className="truncate font-medium">
                                 {lesson.locationName}
                               </div>
@@ -849,90 +1012,193 @@ export default function TeacherDashboard() {
       
       {/* Lesson Details Modal */}
       {selectedLesson && (
-        <div className="fixed inset-0 z-50 flex h-screen items-center justify-center" style={{ backgroundColor: 'rgba(0, 0, 0, 0.5)' }}>
-          <div className="relative max-w-md w-full rounded-xl bg-white p-6 shadow-2xl border border-gray-200">
-            <button 
-              onClick={handleCloseDetails}
-              className="absolute right-4 top-4 text-gray-500 hover:text-gray-700 transition-colors"
-              aria-label="Kapat"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="18" y1="6" x2="6" y2="18"></line>
-                <line x1="6" y1="6" x2="18" y2="18"></line>
-              </svg>
-            </button>
-            
-            <div className="flex items-center mb-5">
-              <div className={`h-12 w-12 rounded-full flex items-center justify-center mr-4 ${getTypeColor(selectedLesson.type, courseTypes)}`}>
-                <BookOpen size={20} />
-              </div>
-              <div>
-                <h3 className="text-2xl font-bold text-gray-800">{selectedLesson.courseName}</h3>
-                {selectedLesson.subject && <p className="text-gray-700 font-medium">{selectedLesson.subject}</p>}
-              </div>
+        <div className="fixed inset-0 z-50 flex items-center justify-center h-screen" style={{ backgroundColor: 'rgba(0, 0, 0, 0.5)' }}>
+          <div className="relative max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg bg-white p-6 shadow-lg">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xl font-semibold text-slate-800">Ders Detayları</h3>
+              <button
+                onClick={handleCloseDetails}
+                className="rounded-full p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition-colors"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
             </div>
             
-            <div className="mb-6 space-y-4">
-              <div className="flex items-center p-2 rounded-lg bg-blue-50">
-                <Calendar className="h-5 w-5 text-blue-600 mr-3" />
-                <div>
-                  <p className="text-sm font-medium text-gray-700">Tarix ve Gün</p>
-                  <p className="text-gray-900 font-medium">
-                    {selectedLesson.date ? new Date(selectedLesson.date).toLocaleDateString('tr-TR', { 
-                      year: 'numeric', month: 'numeric', day: 'numeric', weekday: 'long' 
+            <div className="space-y-6">
+              {/* Subject header with color background */}
+              <div className="rounded-md bg-blue-50 p-4 border-l-4 border-blue-500">
+                <h4 className="font-bold text-blue-700 text-lg">{selectedLesson.subject || "Unnamed Course"}</h4>
+              </div>
+              
+              {/* Date and Time badges */}
+              <div className="flex flex-wrap gap-2 mb-2">
+                <div className="flex items-center rounded-md bg-gray-100 px-3 py-2 text-sm text-gray-700">
+                  <Calendar className="mr-2 h-4 w-4 text-gray-500" />
+                  <span>
+                    {selectedLesson.date ? new Date(selectedLesson.date).toLocaleDateString('tr-TR', {
+                      weekday: 'long',
+                      day: 'numeric',
+                      month: 'long',
+                      year: 'numeric'
                     }) : 'Tarix məlumatı yoxdur'}
-                  </p>
+                  </span>
+                </div>
+                
+                <div className="flex items-center rounded-md bg-gray-100 px-3 py-2 text-sm text-gray-700">
+                  <Clock className="mr-2 h-4 w-4 text-gray-500" />
+                  <span>{selectedLesson.startTime} - {selectedLesson.endTime}</span>
                 </div>
               </div>
               
-              <div className="flex items-center p-2 rounded-lg bg-green-50">
-                <Clock className="h-5 w-5 text-green-600 mr-3" />
-                <div>
-                  <p className="text-sm font-medium text-gray-700">Saat</p>
-                  <p className="text-gray-900 font-medium">{selectedLesson.startTime} - {selectedLesson.endTime}</p>
-                </div>
-              </div>
-              
-              <div className="flex items-center p-2 rounded-lg bg-yellow-50">
-                <MapPin className="h-5 w-5 text-yellow-600 mr-3" />
-                <div>
-                  <p className="text-sm font-medium text-gray-700">Ders Yeri</p>
-                  <p className="text-gray-900 font-medium">{selectedLesson.locationName}</p>
-                </div>
-              </div>
-              
-              <div className="flex items-center p-2 rounded-lg bg-red-50">
-                <BookOpen className="h-5 w-5 text-red-600 mr-3" />
-                <div>
-                  <p className="text-sm font-medium text-gray-700">Ders Tipi</p>
-                  <p className="text-gray-900 font-medium">
-                    {selectedLesson.type === 'lecture' ? 'Normal Ders' : 
-                     selectedLesson.type === 'practice' ? 'Pratik/Uygulama' : 'Sınav'}
-                  </p>
-                </div>
-              </div>
-              
-              {selectedLesson.subject && (
-                <div className="p-2 rounded-lg bg-indigo-50">
-                  <div className="flex items-center mb-1">
-                    <BookOpen className="h-5 w-5 text-indigo-600 mr-3" />
-                    <p className="text-sm font-medium text-gray-700">Ders Açıqlaması</p>
+              {/* Details grid */}
+              <div className="grid grid-cols-1 gap-4 bg-gray-50 rounded-lg p-4">
+                {/* Kurs - Full width */}
+                <div className="bg-white rounded-md p-3 shadow-sm">
+                  <div className="text-xs font-medium uppercase text-gray-500 mb-1">Kurs</div>
+                  <div className="flex items-center">
+                    <BookOpen className="mr-2 h-5 w-5 text-purple-500" />
+                    <span className="text-sm font-medium text-gray-800">{selectedLesson.seasonName || 'Kurs seçilməyib'}</span>
                   </div>
-                  <div className="ml-8 mt-1">
-                    <div className="text-gray-900">
-                      <div>
-                        <span>{selectedLesson.subject}</span>
+                </div>
+                
+                {/* Yer and Dərs Tipi - Two columns */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-white rounded-md p-3 shadow-sm">
+                    <div className="text-xs font-medium uppercase text-gray-500 mb-1">Yer</div>
+                    <div className="flex items-center">
+                      <MapPin className="mr-2 h-5 w-5 text-red-500" />
+                      <span className="text-sm font-medium text-gray-800">{selectedLesson.locationName}</span>
+                    </div>
+                  </div>
+                  
+                  <div className="bg-white rounded-md p-3 shadow-sm">
+                    <div className="text-xs font-medium uppercase text-gray-500 mb-1">Dərs Tipi</div>
+                    <div className="flex items-center">
+                      <div className={`h-5 w-5 rounded-full mr-2 flex items-center justify-center ${
+                        selectedLesson.type === 'lecture' ? 'bg-green-100 text-green-600' :
+                        selectedLesson.type === 'practice' ? 'bg-yellow-100 text-yellow-600' :
+                        selectedLesson.type === 'exam' ? 'bg-red-100 text-red-600' :
+                        'bg-blue-100 text-blue-600'
+                      }`}>
+                        <BookOpen size={12} />
                       </div>
-                      
-                      {selectedLesson.notes && (
-                        <div className="mt-2">
-                          <span>{selectedLesson.notes}</span>
-                        </div>
-                      )}
+                      <span className="text-sm font-medium text-gray-800">
+                        {selectedLesson.type === 'lecture' ? 'Normal Ders' : 
+                        selectedLesson.type === 'practice' ? 'Pratik/Uygulama' : 
+                        selectedLesson.type === 'exam' ? 'Sınav' : 
+                        selectedLesson.type}
+                      </span>
                     </div>
                   </div>
                 </div>
+                
+                {/* Notes if available */}
+                {selectedLesson.notes && (
+                  <div className="bg-white rounded-md p-3 shadow-sm">
+                    <div className="text-xs font-medium uppercase text-gray-500 mb-1">Qeydlər</div>
+                    <div className="text-sm text-gray-800 mt-1">{selectedLesson.notes}</div>
+                  </div>
+                )}
+              </div>
+              
+              {/* Lesson completion status indicator */}
+              <div className="flex justify-between items-center px-2">
+                <div className="flex items-center">
+                  {completedLessons.has(selectedLesson.id) ? (
+                    <div className="flex items-center text-green-600">
+                      <div className="bg-green-100 p-1 rounded-full mr-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="20 6 9 17 4 12"></polyline>
+                        </svg>
+                      </div>
+                      <span className="text-sm font-medium">Tamamlanan dərs</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center text-gray-500">
+                      <div className="bg-gray-100 p-1 rounded-full mr-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <circle cx="12" cy="12" r="10"></circle>
+                          <line x1="12" y1="8" x2="12" y2="12"></line>
+                          <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                        </svg>
+                      </div>
+                      <span className="text-sm font-medium">Tamamlanmamış dərs</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+              
+              {/* Add checkbox for teacher to mark the lesson */}
+              <div className="mt-1 p-3 border border-gray-200 rounded-lg">
+                <label className={`flex items-center ${
+                  (!isWithinLessonTime(selectedLesson) && !completedLessons.has(selectedLesson.id)) || lessonUpdateLoading
+                    ? 'cursor-not-allowed opacity-60' 
+                    : 'cursor-pointer'
+                }`}>
+                  <input 
+                    type="checkbox" 
+                    className="form-checkbox h-5 w-5 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
+                    checked={completedLessons.has(selectedLesson.id)}
+                    onChange={(e) => handleLessonCompletion(selectedLesson.id, e.target.checked)}
+                    disabled={(!isWithinLessonTime(selectedLesson) && !completedLessons.has(selectedLesson.id)) || lessonUpdateLoading}
+                  />
+                  {lessonUpdateLoading ? (
+                    <div className="ml-2 flex items-center">
+                      <Loader size={14} className="animate-spin text-blue-500 mr-2" />
+                      <span className="text-gray-700 font-medium">Yenilənir...</span>
+                    </div>
+                  ) : (
+                    <span className="ml-2 text-gray-700 font-medium">Bu dərsi tamamladım</span>
+                  )}
+                </label>
+                {!isWithinLessonTime(selectedLesson) && !completedLessons.has(selectedLesson.id) && (
+                  <p className="text-xs text-amber-600 mt-1">
+                    Dərsi yalnız dərs saatları ərzində ({selectedLesson.startTime}-{selectedLesson.endTime}) tamamlaya bilərsiniz
+                  </p>
+                )}
+              </div>
+              
+              {/* Action buttons */}
+              <div className="flex flex-wrap justify-end gap-2 pt-2 border-t border-gray-200">
+                <button
+                  onClick={handleCloseDetails}
+                  className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
+                >
+                  Bağla
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Snackbar for notifications */}
+      {snackbar.open && (
+        <div className={`fixed bottom-4 right-4 z-50 rounded-lg shadow-lg p-4 ${
+          snackbar.type === 'success' ? 'bg-green-100 border-l-4 border-green-500' : 
+          'bg-red-100 border-l-4 border-red-500'
+        }`}>
+          <div className="flex items-center">
+            <div className="flex-shrink-0">
+              {snackbar.type === 'success' ? (
+                <svg className="h-5 w-5 text-green-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              ) : (
+                <svg className="h-5 w-5 text-red-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
               )}
+            </div>
+            <div className="ml-3">
+              <p className={`text-sm font-medium ${
+                snackbar.type === 'success' ? 'text-green-800' : 'text-red-800'
+              }`}>
+                {snackbar.message}
+              </p>
             </div>
           </div>
         </div>

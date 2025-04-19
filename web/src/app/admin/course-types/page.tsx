@@ -140,7 +140,7 @@ export default function CourseTypesPage() {
         setFormData(emptyForm);
         setShowForm(false);
         setEditingId(null);
-        showSnackbar('Ders tipi ugurla düzəliş edildi.');
+        showSnackbar('Dərs tipi ugurla düzəliş edildi.');
       } else {
         // Add new course type
         await dispatch(createCourseType(formData)).unwrap();
@@ -151,12 +151,12 @@ export default function CourseTypesPage() {
         // Reset form on success
         setFormData(emptyForm);
         setShowForm(false);
-        showSnackbar('Yeni ders tipi ugurla əlavə edildi.');
+        showSnackbar('Yeni dərs tipi ugurla əlavə edildi.');
       }
     } catch (err) {
       // Error handling is managed by Redux
       console.error('Course type operation failed:', err);
-      showSnackbar('Ders tipi işlemi sırasında bir hata oluştu.', 'warning');
+      showSnackbar('Dərs tipi işlemi sırasında bir hata oluştu.', 'warning');
     }
   };
 
@@ -173,13 +173,13 @@ export default function CourseTypesPage() {
 
   // Handle delete
   const handleDelete = async (id: string) => {
-    if (confirm('Bu ders tipini silmek istediğinize emin misiniz?')) {
+    if (confirm('Bu dərs tipini silmek istediğinize emin misiniz?')) {
       try {
         await dispatch(deleteCourseType(id)).unwrap();
         
         // Silme işlemi sonrası ders tiplerini yeniden çek
         await dispatch(fetchCourseTypes(activeTab));
-        showSnackbar('Ders tipi başarıyla silindi.', 'delete');
+        showSnackbar('Dərs tipi başarıyla silindi.', 'delete');
       } catch (err: unknown) {
         // Error handling is managed by Redux
         console.error('Failed to delete course type:', err);
@@ -187,10 +187,10 @@ export default function CourseTypesPage() {
         // Check if course type is in use
         const errorMessage = err instanceof Error ? err.message : String(err);
         
-        if (errorMessage.includes('Bu ders tipi programda kullanılıyor')) {
-          showSnackbar('Bu ders tipi programda kullanılıyor ve silinemez.', 'warning');
+        if (errorMessage.includes('Bu dərs tipi programda kullanılıyor')) {
+          showSnackbar('Bu dərs tipi programda kullanılıyor ve silinemez.', 'warning');
         } else {
-          showSnackbar('Ders tipi silme işlemi sırasında bir hata oluştu.', 'warning');
+          showSnackbar('Dərs tipi silme işlemi sırasında bir hata oluştu.', 'warning');
         }
       }
     }
@@ -261,7 +261,7 @@ export default function CourseTypesPage() {
             <div className="space-y-4">
               <div>
                 <label htmlFor="name" className="block text-sm font-medium text-gray-700">
-                  Ders Tipi
+                  Dərs Tipi
                 </label>
                 <input
                   type="text"
@@ -269,6 +269,7 @@ export default function CourseTypesPage() {
                   name="name"
                   value={formData.name}
                   onChange={handleChange}
+                  placeholder="Mes : Mühazire"
                   required
                   className="mt-1 block w-full text-black rounded-md border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-blue-500"
                   disabled={isLoading}
@@ -357,7 +358,7 @@ export default function CourseTypesPage() {
         <input
           type="text"
           className="block w-full rounded-lg border border-gray-300 bg-white p-2.5 pl-10 text-gray-800 focus:border-blue-500 focus:ring-blue-500"
-          placeholder="Dərs tipi ara..."
+          placeholder="Dərs tipi axtar..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
         />

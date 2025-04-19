@@ -26,6 +26,9 @@ router.post('/check-teacher-conflict',
 // Öğretmen izin kontrolü
 router.post('/check-teacher-leave', scheduleController.checkTeacherLeave);
 
+// Get completed lessons
+router.get('/completed', debugMiddleware, scheduleController.getCompletedLessons);
+
 // Yeni ders programı kaydı oluştur
 router.post('/',
   debugMiddleware,
@@ -45,6 +48,20 @@ router.delete('/:id',
   debugMiddleware,
   protect, // JWT doğrulama
   scheduleController.deleteSchedule
+);
+
+// Ders kontrol durumunu değiştir
+router.patch('/:id/toggle-check',
+  debugMiddleware,
+  protect, // JWT doğrulama
+  scheduleController.toggleCheckStatus
+);
+
+// Update lesson completion (for teacher time-restricted checks)
+router.put('/:id/completion',
+  debugMiddleware,
+  protect, // JWT doğrulama
+  scheduleController.updateLessonCompletion
 );
 
 module.exports = router;

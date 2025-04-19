@@ -205,8 +205,6 @@ export interface UpdateLeaveRequest {
 // Schedule types
 export interface Schedule {
   id: string;
-  courseId: string;
-  courseName: string;
   teacherId: string;
   teacherName: string;
   teacherEmail?: string;
@@ -214,6 +212,8 @@ export interface Schedule {
   locationName: string;
   courseTypeId: string;
   type: string;
+  seasonId?: string | null;
+  seasonName?: string | null;
   date: string;
   startTime: string;
   endTime: string;
@@ -231,10 +231,10 @@ export interface ScheduleState {
 }
 
 export interface CreateScheduleRequest {
-  courseId: string;
   teacherId: string;
   locationId: string;
   courseTypeId: string;
+  seasonId?: string | null;
   date: string;
   startTime: string;
   endTime: string;
@@ -244,10 +244,10 @@ export interface CreateScheduleRequest {
 export interface UpdateScheduleRequest {
   id: string;
   scheduleData: {
-    courseId: string;
     teacherId: string;
     locationId: string;
     courseTypeId: string;
+    seasonId?: string | null;
     date: string;
     startTime: string;
     endTime: string;
@@ -260,4 +260,36 @@ export interface ConflictInfo {
   type?: 'teacher' | 'location' | 'leave';
   conflictingId?: string;
   message?: string;
+}
+
+// Season types
+export interface Season {
+  id: string;
+  _id?: string;
+  name: string;
+  description?: string;
+  startDate?: string | null;
+  endDate?: string | null;
+  isActive: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface SeasonState {
+  seasons: Season[];
+  isLoading: boolean;
+  error: string | null;
+  currentSeason: Season | null;
+}
+
+export interface CreateSeasonRequest {
+  name: string;
+  description?: string;
+  startDate?: string | null;
+  endDate?: string | null;
+}
+
+export interface UpdateSeasonRequest {
+  id: string;
+  seasonData: Partial<CreateSeasonRequest>;
 } 

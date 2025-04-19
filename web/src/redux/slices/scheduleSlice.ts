@@ -176,6 +176,24 @@ export const checkTeacherLeave = createAsyncThunk<
   }
 });
 
+// Add toggleCheckStatus thunk after checkTeacherLeave
+export const toggleCheckStatus = createAsyncThunk<
+  { schedule: Schedule; message: string },
+  string,
+  { rejectValue: string }
+>('schedules/toggleCheckStatus', async (id, { rejectWithValue }) => {
+  try {
+    console.log(`Toggling check status for schedule ${id}`);
+    const response = await api.patch(`/schedules/${id}/toggle-check`);
+    console.log('Toggle check status response:', response.data);
+    return response.data;
+  } catch (error: unknown) {
+    console.error('Error toggling check status:', error);
+    const axiosError = error as AxiosError<ErrorResponse>;
+    return rejectWithValue(axiosError.response?.data?.message || 'Ders kontrolü değiştirilirken bir hata oluştu');
+  }
+});
+
 // Slice
 const scheduleSlice = createSlice({
   name: 'schedules',
@@ -351,6 +369,21 @@ const scheduleSlice = createSlice({
         }
       })
       .addCase(checkTeacherLeave.rejected, (state, action) => {
+        state.isLoading = false;
+        state.error = action.payload as string;
+      })
+      
+      // Toggle check status
+      .addCase(toggleCheckStatus.pending, (state) => {
+        state.isLoading = true;
+        state.error = null;
+        state.conflict = null;
+      })
+      .addCase(toggleCheckStatus.fulfilled, (state, action) => {
+        state.isLoading = false;
+        state.currentSchedule = action.payload.schedule;
+      })
+      .addCase(toggleCheckStatus.rejected, (state, action) => {
         state.isLoading = false;
         state.error = action.payload as string;
       });
