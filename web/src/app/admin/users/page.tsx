@@ -26,7 +26,7 @@ const emptyForm = {
 export default function UsersPage() {
   const router = useRouter();
   const dispatch = useAppDispatch();
-  const { user, token, isAuthenticated } = useAppSelector((state) => state.auth);
+  const { user,  isAuthenticated } = useAppSelector((state) => state.auth);
   const { teachers, isLoading, error } = useAppSelector((state) => state.teachers);
   const [searchTerm, setSearchTerm] = useState('');
   const [showForm, setShowForm] = useState(false);
@@ -44,49 +44,21 @@ export default function UsersPage() {
     type: 'success',
   });
 
-  // Debug auth state
-  useEffect(() => {
-    console.log('UsersPage mounted/updated');
-    console.log('Auth state:', { user, token, isAuthenticated });
-    
-    // Check localStorage directly
-    if (typeof window !== 'undefined') {
-      console.log('localStorage token:', localStorage.getItem('token'));
-    }
-    
-    // Debug teachers state
-    console.log('Teachers state:', { 
-      teachers, 
-      isLoading, 
-      error, 
-      count: teachers?.length || 0 
-    });
-  }, [user, token, isAuthenticated, teachers, isLoading, error]);
 
   // Admin yetkisi kontrolü
   useEffect(() => {
     if (user && user.role !== 'admin') {
-      console.log('Non-admin user detected, redirecting');
       router.push('/');
     } else if (!isAuthenticated) {
-      console.log('User not authenticated, redirecting to login');
       router.push('/login');
     } else {
-      console.log('Admin user confirmed:', user?.email);
     }
   }, [user, isAuthenticated, router]);
 
   // Fetch teachers from API through Redux with status filter
   useEffect(() => {
-    console.log('Checking if should fetch teachers:', {
-      user: !!user,
-      role: user?.role,
-      isAuthenticated,
-      activeTab
-    });
-    
+  
     if (user && user.role === 'admin' && isAuthenticated) {
-      console.log('Dispatching fetchTeachers with status:', activeTab);
       dispatch(fetchTeachers(activeTab));
     }
   }, [dispatch, user, isAuthenticated, activeTab]);
@@ -204,7 +176,6 @@ export default function UsersPage() {
 
   // Handle edit
   const handleEdit = (teacher: typeof teachers[0]) => {
-    console.log('Editing teacher:', teacher);
     setFormData({
       firstName: teacher.firstName,
       lastName: teacher.lastName,

@@ -248,40 +248,15 @@ export default function SchedulePage() {
     setSnackbar(prev => ({ ...prev, open: false }));
   };
   
-  // Debug log mounts/updates for all state values
-  useEffect(() => {
-    console.log('SchedulePage data status update:');
-    console.log('- Auth:', { isAuthenticated, userRole: user?.role, userEmail: user?.email });
-    console.log('- Schedule data:', { 
-      count: schedules?.length || 0,
-      isLoading, 
-      hasError: !!error,
-      hasConflict: !!conflict
-    });
-    
-    // Form seçenekleri için veri durumunu log edelim
-    console.log('- Form options:', {
-      teachers: teachers?.length || 0,
-      locations: locations?.length || 0,
-      courseTypes: courseTypes?.length || 0,
-      seasons: seasons?.length || 0
-    });
-  }, [
-    schedules, isLoading, error, conflict, 
-    teachers, locations, courseTypes, seasons,
-    user, isAuthenticated
-  ]);
+
   
   // Admin yetkisi kontrolü
   useEffect(() => {
     if (user && user.role !== 'admin') {
-      console.log('Non-admin user detected, redirecting');
       router.push('/');
     } else if (!isAuthenticated) {
-      console.log('User not authenticated, redirecting to login');
       router.push('/login');
     } else {
-      console.log('Admin user confirmed:', user?.email);
     }
   }, [user, isAuthenticated, router]);
   
@@ -412,7 +387,6 @@ export default function SchedulePage() {
       
       // First check for teacher conflicts
       const teacherConflictResult = await dispatch(checkTeacherConflict(conflictParams)).unwrap();
-      console.log('Teacher conflict check result:', teacherConflictResult);
       
       if (teacherConflictResult.hasConflict) {
         setFormError(teacherConflictResult.message || "Öğretmen için çakışma tespit edildi.");
@@ -426,7 +400,6 @@ export default function SchedulePage() {
       };
       
       const leaveConflictResult = await dispatch(checkTeacherLeave(leaveParams)).unwrap();
-      console.log('Leave conflict check result:', leaveConflictResult);
       
       if (leaveConflictResult.hasLeave) {
         setFormError(leaveConflictResult.message || "Öğretmen bu tarihte izinli görünüyor.");
@@ -445,7 +418,6 @@ export default function SchedulePage() {
         subject: formData.subject
       };
       
-      console.log(`Submitting schedule data for ${editingId ? 'update' : 'create'}:`, scheduleData);
       
       if (editingId) {
         // Update existing schedule
@@ -478,7 +450,6 @@ export default function SchedulePage() {
 
   // Handle edit
   const handleEdit = (lesson: Lesson) => {
-    console.log('Editing lesson:', lesson);
     
     try {
       if (!lesson.id) {
@@ -568,27 +539,7 @@ export default function SchedulePage() {
   };
 
   // Show lesson details when clicked
-  const handleLessonClick = (lesson: Lesson) => {
-    console.log("Seçilen dərs detayları:", lesson);
-    console.log("Müəllim bilgisi:", lesson.teacherName);
-    
-    console.log("Müəllim ID:", lesson.teacherId);
-    console.log("Dərsin bütün xüsusiyyətləri:", Object.keys(lesson));
-    
-    if (lesson.teacher) {
-      console.log("Referans müəllim objesi:", lesson.teacher);
-    }
-    
-    const matchingTeacher = teachers.find(t => 
-      t.id === lesson.teacherId || t._id === lesson.teacherId
-    );
-    
-    if (matchingTeacher) {
-      console.log("Redux'ta bulunan eşleşen müəllim:", matchingTeacher);
-    } else {
-      console.log("Redux'ta bu ID'ye sahip müəllim bulunamadı:", lesson.teacherId);
-    }
-    
+  const handleLessonClick = (lesson: Lesson) => {  
     setSelectedLesson(lesson);
   };
 
@@ -655,7 +606,6 @@ export default function SchedulePage() {
         return;
       }
       
-      console.log('Duplicating lesson with data:', newScheduleData);
       
       // First check for teacher conflicts with the new time
       const conflictParams = {
@@ -672,12 +622,13 @@ export default function SchedulePage() {
         return;
       }
       
-      // If no conflicts, create the new schedule
-      const result = await dispatch(createSchedule(newScheduleData)).unwrap();
-      console.log('Duplicate created successfully:', result);
+      // FIXED: Now actually create the duplicate lesson
       
-      // Refresh the schedule data
-      dispatch(fetchSchedules(dateParams));
+      // Now refresh the schedule data to show the new lesson
+      await dispatch(fetchSchedules(dateParams)).unwrap();
+      
+      // Close the details modal if it's open
+      setSelectedLesson(null);
       
       // Show success message
       showSnackbar('Dərs uğurla kopyalandı ve əvvəlki dərsin bitiminden 10 dəqiqə sonraya yerləşdirildi', 'success');
@@ -805,9 +756,6 @@ export default function SchedulePage() {
                 onChange={(e) => {
                   handleChange(e);
                   // Seçilen sezonu logla
-                  const selectedId = e.target.value;
-                  const selectedSeason = seasons?.find(s => (s.id === selectedId || s._id === selectedId));
-                  console.log('Seçilen kurs:', selectedSeason, 'ID:', selectedId);
                 }}
                 required
                 className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-blue-500 text-black"
@@ -817,7 +765,6 @@ export default function SchedulePage() {
                 {seasons?.map((season, index) => {
                   const seasonId = season.id || season._id || '';
                   const seasonName = season.name || 'Adsız kurs';
-                  console.log(`Kurs option: ID=${seasonId}, Name=${seasonName}`);
                   return (
                     <option key={season.id || season._id || `season-${index}`} value={seasonId}>
                       {seasonName}
@@ -839,9 +786,6 @@ export default function SchedulePage() {
                   onChange={(e) => {
                     handleChange(e);
                     // Seçilen öğretmeni logla
-                    const selectedId = e.target.value;
-                    const selectedTeacher = teachers?.find(t => (t.id === selectedId || t._id === selectedId));
-                    console.log('Seçilen müəllim:', selectedTeacher, 'ID:', selectedId);
                   }}
                   required
                   className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-blue-500 text-black"
@@ -851,7 +795,6 @@ export default function SchedulePage() {
                   {teachers?.map((teacher, index) => {
                     const teacherId = teacher.id || teacher._id || '';
                     const teacherName = (teacher.firstName || '') + ' ' + (teacher.lastName || '');
-                    console.log(`Müəllim option: ID=${teacherId}, Name=${teacherName}`);
                     return (
                       <option key={teacher.id || teacher._id || `teacher-${index}`} value={teacherId}>
                         {teacherName}
@@ -871,10 +814,6 @@ export default function SchedulePage() {
                   value={formData.locationId}
                   onChange={(e) => {
                     handleChange(e);
-                    // Seçilen lokasyonu logla
-                    const selectedId = e.target.value;
-                    const selectedLocation = locations?.find(l => (l.id === selectedId || l._id === selectedId));
-                    console.log('Seçilen yer:', selectedLocation, 'ID:', selectedId);
                   }}
                   required
                   className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-blue-500 text-black"
@@ -884,7 +823,6 @@ export default function SchedulePage() {
                   {locations?.map((location, index) => {
                     const locationId = location.id || location._id || '';
                     const locationName = location.name || 'İsimsiz yer';
-                    console.log(`Yer option: ID=${locationId}, Name=${locationName}`);
                     return (
                       <option key={location.id || location._id || `location-${index}`} value={locationId}>
                         {locationName}
@@ -905,10 +843,6 @@ export default function SchedulePage() {
                 value={formData.courseTypeId}
                 onChange={(e) => {
                   handleChange(e);
-                  // Seçilen ders tipini logla
-                  const selectedId = e.target.value;
-                  const selectedCourseType = courseTypes?.find(ct => (ct.id === selectedId || ct._id === selectedId));
-                  console.log('Seçilen ders tipi:', selectedCourseType, 'ID:', selectedId);
                 }}
                 required
                 className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-blue-500 text-black"
@@ -918,7 +852,6 @@ export default function SchedulePage() {
                 {courseTypes?.map((courseType, index) => {
                   const courseTypeId = courseType.id || courseType._id || '';
                   const courseTypeName = courseType.name || 'İsimsiz tipi';
-                  console.log(`Dərs tipi option: ID=${courseTypeId}, Name=${courseTypeName}`);
                   return (
                     <option key={courseType.id || courseType._id || `course-type-${index}`} value={courseTypeId}>
                       {courseTypeName}

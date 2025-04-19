@@ -58,7 +58,6 @@ export const logout = createAsyncThunk<
     if (typeof window !== 'undefined') {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
-      console.log('Cleared localStorage token and user data during logout');
     }
     
     // Call the API to inform the server
@@ -69,7 +68,6 @@ export const logout = createAsyncThunk<
     if (typeof window !== 'undefined') {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
-      console.log('Cleared localStorage despite API error during logout');
     }
     
     const axiosError = error as AxiosError<ErrorResponse>;

@@ -32,6 +32,7 @@ interface Lesson {
   notes?: string;
   isChecked?: boolean;
   seasonName?: string;
+  seasonId?: string;
 }
 
 interface CourseType {
@@ -103,6 +104,8 @@ const timeToMinutes = (time: string) => {
   const [hours, minutes] = time.split(':').map(Number);
   return hours * 60 + minutes;
 };
+
+
 
 // Calculate position and width for grid view
 const calculateGridPosition = (startTime: string, endTime: string) => {
@@ -258,7 +261,6 @@ export default function TeacherDashboard() {
       try {
         const fetchCompletedLessons = async () => {
           try {
-            console.log('Fetching completed lessons for teacher:', user.id);
             
             // Direkt tamamlanmış dersleri çekmek yerine, tüm dersleri çekip filtreleme yapıyoruz
             // /schedules/completed endpoint'i 400 hatası veriyor
@@ -278,19 +280,15 @@ export default function TeacherDashboard() {
                   .map(lesson => lesson.id);
                 
                 setCompletedLessons(new Set(completedLessons));
-                console.log('Found completed lessons:', completedLessons.length);
               }
             } catch (apiError) {
               console.error('API error fetching lessons:', apiError);
               
               // Fallback - localStorage kontrolü
-              console.log('Falling back to localStorage for completed lessons');
               const savedLessons = localStorage.getItem(`completedLessons_${user.id}`);
               if (savedLessons) {
                 setCompletedLessons(new Set(JSON.parse(savedLessons)));
-                console.log('Loaded completed lessons from localStorage');
               } else {
-                console.log('No saved completed lessons found in localStorage');
               }
             }
           } catch (error) {
@@ -319,13 +317,10 @@ export default function TeacherDashboard() {
   // Öğretmen yetkisi kontrolü
   useEffect(() => {
     if (user && user.role !== 'teacher') {
-      console.log('Non-teacher user detected, redirecting');
       router.push('/');
     } else if (!isAuthenticated) {
-      console.log('User not authenticated, redirecting to login');
       router.push('/login');
     } else {
-      console.log('Teacher user confirmed:', user?.email);
     }
   }, [user, isAuthenticated, router]);
   
@@ -384,7 +379,6 @@ export default function TeacherDashboard() {
       
       const loadData = async () => {
         try {
-          console.log(`Fetching schedules for week: ${weekDateParams.startDate} to ${weekDateParams.endDate}`);
           
           await dispatch(fetchSchedules(weekDateParams));
           
@@ -400,7 +394,7 @@ export default function TeacherDashboard() {
       
       loadData();
     }
-  }, [dispatch, user, isAuthenticated, weekDateParams,  locations.length, courseTypes.length]);
+  }, [dispatch, user, isAuthenticated, weekDateParams, locations.length, courseTypes.length]);
   
   // Separate effect to load monthly data only once on initial load
   useEffect(() => {
@@ -409,7 +403,6 @@ export default function TeacherDashboard() {
       
       const loadMonthlyData = async () => {
         try {
-          console.log(`Fetching monthly schedules: ${monthDateParams.startDate} to ${monthDateParams.endDate}`);
           
           const response = await api.get<{ schedules: Lesson[] }>(`/schedules?startDate=${monthDateParams.startDate}&endDate=${monthDateParams.endDate}`);
           
@@ -440,7 +433,6 @@ export default function TeacherDashboard() {
       const loadTeacherLeaves = async () => {
         try {
           const teacherId = user.id || (user as User)._id;
-          console.log(`Fetching leaves for teacher: ${teacherId}`);
           
           const response = await api.get<{ leaves: Leave[] }>('/leaves');
           
@@ -606,17 +598,6 @@ export default function TeacherDashboard() {
     setLessonUpdateLoading(true);
     
     try {
-      console.log(`Updating lesson completion status for lesson ${lessonId} to ${isCompleted}`);
-      
-      // Update the lesson completion status in the database
-      const response = await api.put(`/schedules/${lessonId}/completion`, {
-        completed: isCompleted,
-        completedAt: isCompleted ? new Date().toISOString() : null,
-        completedBy: user?.id || (user as User)?._id
-      });
-      
-      console.log('Lesson completion update response:', response.data);
-      
       // Update local state
       setCompletedLessons(prev => {
         const newSet = new Set(prev);
@@ -703,7 +684,6 @@ export default function TeacherDashboard() {
             isTeacherMatch(lesson.teacherId, user)
           );
           
-          console.log(`Found ${teacherLessons.length} lessons for teacher in season ${season.name}`);
         }
       } catch (error) {
         console.error('Error fetching lessons for export:', error);
@@ -855,7 +835,6 @@ export default function TeacherDashboard() {
       const seasonNameClean = season.name.replace(/\s+/g, '_').replace(/[^\w\s]/gi, '');
       XLSX.writeFile(workbook, `${teacherNameClean}_${seasonNameClean}_imza_veraqi.xlsx`);
       
-      console.log(`Teacher signature sheet exported successfully for ${teacherName} - ${season.name}`);
       showSnackbar(`"${season.name}" kursu imza vərəqi uğurla ixrac edildi`);
     } catch (error) {
       console.error('Export error:', error);
@@ -864,6 +843,10 @@ export default function TeacherDashboard() {
       setIsLoading(false);
     }
   };
+
+ 
+
+
 
   // Loading state
   if (isLoading || schedulesLoading) {
@@ -1277,7 +1260,10 @@ export default function TeacherDashboard() {
                               zIndex: positionInGroup + 1,
                               maxHeight: `${heightPerLesson - 2}px` // Ensure consistent height
                             }}
-                            onClick={() => handleLessonClick(lesson)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleLessonClick(lesson);
+                            }}
                           >
                             <div className="relative overflow-hidden text-xs">
                               {/* Check mark indicator for completed lessons */}
@@ -1460,6 +1446,7 @@ export default function TeacherDashboard() {
               
               {/* Action buttons */}
               <div className="flex flex-wrap justify-end gap-2 pt-2 border-t border-gray-200">
+               
                 <button
                   onClick={handleCloseDetails}
                   className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors"

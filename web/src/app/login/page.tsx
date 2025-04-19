@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Mail, Lock, LogIn, AlertCircle } from 'lucide-react';
 import { useDispatch } from 'react-redux';
@@ -8,7 +8,6 @@ import { setCredentials } from '@/redux/slices/authSlice';
 import api from '@/services/api';
 
 // API URL
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3500/api';
 
 export default function Login() {
   const router = useRouter();
@@ -18,9 +17,7 @@ export default function Login() {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  useEffect(() => {
-    console.log('API URL:', API_URL);
-  }, []);
+
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -28,7 +25,6 @@ export default function Login() {
     setError('');
     
     try {
-      console.log('Attempting login with API for:', email);
       
       // Use the configured API client instead of fetch
       const response = await api.post('/auth/login', { email, password });
@@ -43,7 +39,6 @@ export default function Login() {
         throw new Error('Invalid response from server');
       }
       
-      console.log('Login successful, user:', user.role);
       
       // Update Redux store
       dispatch(setCredentials({ user, token }));

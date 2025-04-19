@@ -69,34 +69,21 @@ export default function SeasonsPage() {
     setSnackbar(prev => ({ ...prev, open: false }));
   };
 
-  // Debug log mounts/updates
-  useEffect(() => {
-    console.log('SeasonsPage mounted/updated');
-    console.log('Seasons state:', { 
-      seasons, 
-      isLoading, 
-      error, 
-      count: seasons?.length || 0 
-    });
-  }, [seasons, isLoading, error]);
+
 
   // Admin yetkisi kontrolü
   useEffect(() => {
     if (user && user.role !== 'admin') {
-      console.log('Non-admin user detected, redirecting');
       router.push('/');
     } else if (!isAuthenticated) {
-      console.log('User not authenticated, redirecting to login');
       router.push('/login');
     } else {
-      console.log('Admin user confirmed:', user?.email);
     }
   }, [user, isAuthenticated, router]);
 
   // Sezonları yükle
   useEffect(() => {
     if (user && user.role === 'admin' && isAuthenticated) {
-      console.log('Dispatching fetchSeasons with status:', activeTab);
       dispatch(fetchSeasons(activeTab));
     }
   }, [dispatch, user, isAuthenticated, activeTab]);
@@ -175,7 +162,6 @@ export default function SeasonsPage() {
 
   // Handle edit
   const handleEdit = (season: typeof seasons[0]) => {
-    console.log('Editing season:', season);
     setFormData({
       name: season.name,
       description: season.description || '',

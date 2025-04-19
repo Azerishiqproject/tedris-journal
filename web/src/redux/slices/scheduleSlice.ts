@@ -31,7 +31,6 @@ export const fetchSchedules = createAsyncThunk<
   { rejectValue: string }
 >('schedules/fetchSchedules', async (dateParams, { rejectWithValue }) => {
   try {
-    console.log('Fetching schedules with params:', dateParams);
     
     let url = '/schedules';
     if (dateParams) {
@@ -45,7 +44,6 @@ export const fetchSchedules = createAsyncThunk<
     }
     
     const response = await api.get(url);
-    console.log('Schedules API response:', response.data);
     return response.data;
   } catch (error: unknown) {
     console.error('Error fetching schedules:', error);
@@ -74,9 +72,7 @@ export const createSchedule = createAsyncThunk<
   { rejectValue: string }
 >('schedules/createSchedule', async (scheduleData, { rejectWithValue }) => {
   try {
-    console.log('Creating schedule with data:', scheduleData);
     const response = await api.post('/schedules', scheduleData);
-    console.log('Create schedule response:', response.data);
     return response.data;
   } catch (error: unknown) {
     console.error('Error creating schedule:', error);
@@ -101,9 +97,7 @@ export const updateSchedule = createAsyncThunk<
   { rejectValue: string }
 >('schedules/updateSchedule', async ({ id, scheduleData }, { rejectWithValue }) => {
   try {
-    console.log(`Updating schedule ${id} with data:`, scheduleData);
     const response = await api.put(`/schedules/${id}`, scheduleData);
-    console.log('Update schedule response:', response.data);
     return response.data;
   } catch (error: unknown) {
     console.error('Error updating schedule:', error);
@@ -128,9 +122,7 @@ export const deleteSchedule = createAsyncThunk<
   { rejectValue: string }
 >('schedules/deleteSchedule', async (id, { rejectWithValue }) => {
   try {
-    console.log(`Deleting schedule ${id}`);
     const response = await api.delete(`/schedules/${id}`);
-    console.log('Delete schedule response:', response.data);
     return response.data;
   } catch (error: unknown) {
     console.error('Error deleting schedule:', error);
@@ -146,7 +138,6 @@ export const checkTeacherConflict = createAsyncThunk<
   { rejectValue: string }
 >('schedules/checkTeacherConflict', async (params, { rejectWithValue }) => {
   try {
-    console.log('Checking teacher conflict with params:', params);
     
     const response = await api.post('/schedules/check-teacher-conflict', params);
     return response.data;
@@ -164,7 +155,6 @@ export const checkTeacherLeave = createAsyncThunk<
   { rejectValue: string }
 >('schedules/checkTeacherLeave', async (params, { rejectWithValue }) => {
   try {
-    console.log('Checking teacher leave with params:', params);
     
     // API endpoint to check if teacher is on leave
     const response = await api.post('/schedules/check-teacher-leave', params);
@@ -183,9 +173,7 @@ export const toggleCheckStatus = createAsyncThunk<
   { rejectValue: string }
 >('schedules/toggleCheckStatus', async (id, { rejectWithValue }) => {
   try {
-    console.log(`Toggling check status for schedule ${id}`);
     const response = await api.patch(`/schedules/${id}/toggle-check`);
-    console.log('Toggle check status response:', response.data);
     return response.data;
   } catch (error: unknown) {
     console.error('Error toggling check status:', error);

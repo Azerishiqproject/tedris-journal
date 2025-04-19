@@ -68,13 +68,10 @@ export default function DashboardPage() {
   // Admin yetkisi kontrolü
   useEffect(() => {
     if (user && user.role !== 'admin') {
-      console.log('Non-admin user detected, redirecting');
       router.push('/');
     } else if (!isAuthenticated) {
-      console.log('User not authenticated, redirecting to login');
       router.push('/login');
     } else {
-      console.log('Admin user confirmed:', user?.email);
     }
   }, [user, isAuthenticated, router]);
 
@@ -187,7 +184,6 @@ export default function DashboardPage() {
 
   const exportSeasonLessonsToExcel = () => {
     if (isLoading || schedules.length === 0 || !selectedSeason) {
-      console.log("Cannot export: data is loading, no schedules available, or no season selected");
       showSnackbar("İxrac üçün kurs seçilməlidir", "error");
       return;
     }
@@ -409,7 +405,6 @@ export default function DashboardPage() {
       const seasonName = season.name.replace(/\s+/g, '_').replace(/[^\w\s]/gi, '');
       XLSX.writeFile(workbook, `${seasonName}_ders_cedveli.xlsx`);
       
-      console.log(`Season schedule exported successfully for ${season.name}`);
       showSnackbar(`"${season.name}" kursu üçün dərs cədvəli uğurla ixrac edildi`);
     } catch (error) {
       console.error('Export error:', error);
@@ -582,7 +577,6 @@ export default function DashboardPage() {
       const seasonNameClean = season.name.replace(/\s+/g, '_').replace(/[^\w\s]/gi, '');
       XLSX.writeFile(workbook, `${teacherNameClean}_${seasonNameClean}_imza_veraqi.xlsx`);
       
-      console.log(`Teacher signature sheet exported successfully for ${teacherName} - ${season.name}`);
       showSnackbar(`"${teacherName}" müəllimi üçün "${season.name}" kursu imza vərəqi uğurla ixrac edildi`);
     } catch (error) {
       console.error('Export error:', error);

@@ -12,7 +12,6 @@ export function ReduxProvider({ children }: { children: ReactNode }) {
   
   // Check localStorage for existing token and restore session
   useEffect(() => {
-    console.log('Redux Provider mounted, checking authentication...');
     
     try {
       // Get token and user from localStorage
@@ -26,7 +25,6 @@ export function ReduxProvider({ children }: { children: ReactNode }) {
           
           // Dispatch action to set credentials in Redux state
           store.dispatch(setCredentials({ user, token }));
-          console.log('Session restored from localStorage for:', user.email);
           
           // Redirect to appropriate dashboard if on login page
           if (pathname === '/login') {
@@ -45,11 +43,9 @@ export function ReduxProvider({ children }: { children: ReactNode }) {
           localStorage.removeItem('user');
         }
       } else {
-        console.log('No authentication data found in localStorage');
         
         // If not authenticated and not on login page, redirect to login
         if (pathname !== '/login' && !pathname.startsWith('/api/')) {
-          console.log('Redirecting to login page');
           router.push('/login');
         }
       }

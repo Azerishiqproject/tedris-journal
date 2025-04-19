@@ -123,13 +123,10 @@ export default function LeavesPage() {
   // Admin permission check
   useEffect(() => {
     if (user && user.role !== 'admin') {
-      console.log('Non-admin user detected, redirecting');
       router.push('/');
     } else if (!isAuthenticated) {
-      console.log('User not authenticated, redirecting to login');
       router.push('/login');
     } else {
-      console.log('Admin user confirmed:', user?.email);
     }
   }, [user, isAuthenticated, router]);
 
@@ -220,8 +217,6 @@ export default function LeavesPage() {
 
   // Handle edit
   const handleEdit = (leave: LeaveData) => {
-    const teacher = teachers.find(t => t.id === leave.teacherId || t._id === leave.teacherId);
-    console.log('Mezuniyet məlumatlarını düzenlemek üçün müəllim:', teacher);
     
     setFormData({
       teacherId: leave.teacherId,

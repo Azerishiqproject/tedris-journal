@@ -2,7 +2,6 @@ import axios from 'axios';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3500/api';
 
-console.log('API URL configured as:', API_URL);
 
 // Check token format validity
 const isValidToken = (token: string): boolean => {
@@ -98,7 +97,6 @@ api.interceptors.response.use(
     
     // Handle 401 Unauthorized errors (token expired or invalid)
     if (error.response && error.response.status === 401 && !originalRequest._retry) {
-      console.log('Unauthorized access, handling token refresh or redirect');
       
       // Check if we're already refreshing to prevent multiple refresh attempts
       if (isRefreshing) {

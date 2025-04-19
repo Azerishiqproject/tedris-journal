@@ -62,34 +62,21 @@ export default function LocationsPage() {
     setSnackbar(prev => ({ ...prev, open: false }));
   };
 
-  // Debug log mounts/updates
-  useEffect(() => {
-    console.log('LocationsPage mounted/updated');
-    console.log('Locations state:', { 
-      locations, 
-      isLoading, 
-      error, 
-      count: locations?.length || 0 
-    });
-  }, [locations, isLoading, error]);
+  
 
   // Admin yetkisi kontrolü
   useEffect(() => {
     if (user && user.role !== 'admin') {
-      console.log('Non-admin user detected, redirecting');
       router.push('/');
     } else if (!isAuthenticated) {
-      console.log('User not authenticated, redirecting to login');
       router.push('/login');
     } else {
-      console.log('Admin user confirmed:', user?.email);
     }
   }, [user, isAuthenticated, router]);
 
   // Mekanları yükle
   useEffect(() => {
     if (user && user.role === 'admin' && isAuthenticated) {
-      console.log('Dispatching fetchLocations with status:', activeTab);
       dispatch(fetchLocations(activeTab));
     }
   }, [dispatch, user, isAuthenticated, activeTab]);
@@ -162,7 +149,6 @@ export default function LocationsPage() {
 
   // Handle edit
   const handleEdit = (location: typeof locations[0]) => {
-    console.log('Editing location:', location);
     setFormData({
       name: location.name,
       description: location.description || '',

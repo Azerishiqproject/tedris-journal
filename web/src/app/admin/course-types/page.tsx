@@ -62,34 +62,21 @@ export default function CourseTypesPage() {
     setSnackbar(prev => ({ ...prev, open: false }));
   };
 
-  // Debug log mounts/updates
-  useEffect(() => {
-    console.log('CourseTypesPage mounted/updated');
-    console.log('CourseTypes state:', { 
-      courseTypes, 
-      isLoading, 
-      error, 
-      count: courseTypes?.length || 0 
-    });
-  }, [courseTypes, isLoading, error]);
+
 
   // Admin yetkisi kontrolü
   useEffect(() => {
     if (user && user.role !== 'admin') {
-      console.log('Non-admin user detected, redirecting');
       router.push('/');
     } else if (!isAuthenticated) {
-      console.log('User not authenticated, redirecting to login');
       router.push('/login');
     } else {
-      console.log('Admin user confirmed:', user?.email);
     }
   }, [user, isAuthenticated, router]);
 
   // Kurs tiplerini yükle
   useEffect(() => {
     if (user && user.role === 'admin' && isAuthenticated) {
-      console.log('Dispatching fetchCourseTypes with status:', activeTab);
       dispatch(fetchCourseTypes(activeTab));
     }
   }, [dispatch, user, isAuthenticated, activeTab]);
@@ -162,7 +149,6 @@ export default function CourseTypesPage() {
 
   // Handle edit
   const handleEdit = (courseType: typeof courseTypes[0]) => {
-    console.log('Editing course type:', courseType);
     setFormData({
       name: courseType.name,
       description: courseType.description || '',
