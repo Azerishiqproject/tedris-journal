@@ -598,31 +598,48 @@ export default function TeacherDashboard() {
     setLessonUpdateLoading(true);
     
     try {
-      // Update local state
-      setCompletedLessons(prev => {
-        const newSet = new Set(prev);
-        if (isCompleted) {
-          newSet.add(lessonId);
-        } else {
-          newSet.delete(lessonId);
-        }
-        
-        // Also update localStorage as a backup
-        if (user?.id) {
-          try {
-            localStorage.setItem(`completedLessons_${user.id}`, JSON.stringify([...newSet]));
-          } catch (error: unknown) {
-            console.error('Error saving completed lessons to localStorage:', error);
-          }
-        }
-        
-        return newSet;
+      // API isteği gönder - backend veritabanını güncelle
+      console.log(`API request to update lesson completion: ${lessonId}, completed: ${isCompleted}`);
+      
+      // Backend'deki updateLessonCompletion endpoint'ini çağır
+      const response = await api.put(`/schedules/${lessonId}/completion`, {
+        completed: isCompleted,
+        completedAt: new Date().toISOString(),
+        completedBy: user?.id
       });
       
-      showSnackbar(
-        isCompleted ? 'Dərs uğurla tamamlandı!' : 'Dərs tamamlanmamış kimi işarələndi.',
-        'success'
-      );
+      console.log('API response:', response.data);
+      
+      // API çağrısı başarılı olduysa, yerel durumu güncelle
+      if (response.data && response.data.schedule) {
+        // Update local state
+        setCompletedLessons(prev => {
+          const newSet = new Set(prev);
+          if (isCompleted) {
+            newSet.add(lessonId);
+          } else {
+            newSet.delete(lessonId);
+          }
+          
+          // Also update localStorage as a backup
+          if (user?.id) {
+            try {
+              localStorage.setItem(`completedLessons_${user.id}`, JSON.stringify([...newSet]));
+            } catch (error: unknown) {
+              console.error('Error saving completed lessons to localStorage:', error);
+            }
+          }
+          
+          return newSet;
+        });
+        
+        showSnackbar(
+          isCompleted ? 'Dərs uğurla tamamlandı!' : 'Dərs tamamlanmamış kimi işarələndi.',
+          'success'
+        );
+      } else {
+        throw new Error('API yanıtında beklenen veri bulunamadı');
+      }
     } catch (error: unknown) {
       console.error('Error updating lesson completion status:', error);
       // Show more detailed error message
