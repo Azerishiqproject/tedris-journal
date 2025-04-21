@@ -623,6 +623,8 @@ export default function SchedulePage() {
       }
       
       // FIXED: Now actually create the duplicate lesson
+      const createResult = await dispatch(createSchedule(newScheduleData)).unwrap();
+      console.log('Duplicate lesson created:', createResult);
       
       // Now refresh the schedule data to show the new lesson
       await dispatch(fetchSchedules(dateParams)).unwrap();

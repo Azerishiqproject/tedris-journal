@@ -436,7 +436,7 @@ export default function LeavesPage() {
           </div>
         ) : filteredLeaves.length === 0 ? (
           <div className="p-6 text-center text-gray-500">
-            {searchTerm ? 'Arama kriterlərinə uyğun mezuniyet məlumatları tapılmadı.' : 'Hələki mezuniyet məlumatları əlavə edilmədi.'}
+            {searchTerm ? 'Axtarış kriterlərinə uyğun mezuniyet məlumatları tapılmadı.' : 'Hələki mezuniyet məlumatları əlavə edilmədi.'}
           </div>
         ) : (
           <div className="overflow-x-auto">
