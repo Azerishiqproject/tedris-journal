@@ -917,7 +917,7 @@ export default function SchedulePage() {
             
             <div className="md:col-span-2">
               <label htmlFor="subject" className="block text-sm font-medium text-gray-700">
-                Konu
+                Mövzu
               </label>
               <input
                 type="text"
@@ -969,7 +969,7 @@ export default function SchedulePage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center h-screen bg-opacity-50" style={{ backgroundColor: 'rgba(0, 0, 0, 0.5)' }}>
           <div className="relative max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg bg-white p-6 shadow-lg">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-xl font-semibold text-slate-800">Ders Detayları</h3>
+              <h3 className="text-xl font-semibold text-slate-800">Dərs Detalları</h3>
               <button
                 onClick={handleCloseDetails}
                 className="rounded-full p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition-colors"

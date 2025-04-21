@@ -671,19 +671,34 @@ export default function TeacherDashboard() {
         return;
       }
       
-      // Fetch all lessons for this season and teacher directly from API
+      // Fetch all lessons and filter manually since API doesn't properly filter by seasonId
       let teacherLessons: Lesson[] = [];
       
       try {
-        // Fetch all lessons for this season - no date filtering
-        const response = await api.get<{ schedules: Lesson[] }>(`/schedules?seasonId=${selectedSeason}`);
+        console.log(`Fetching all lessons for teacher: ${teacherId}`);
+        // Not using seasonId in API call since it's not properly implemented in backend
+        const response = await api.get<{ schedules: Lesson[] }>(`/schedules`);
         
         if (response.data && response.data.schedules) {
-          // Filter for the current teacher only
-          teacherLessons = response.data.schedules.filter(lesson => 
+          // First filter for the current teacher
+          const teacherLessonsAll = response.data.schedules.filter(lesson => 
             isTeacherMatch(lesson.teacherId, user)
           );
           
+          console.log(`Found ${teacherLessonsAll.length} total lessons for this teacher`);
+          
+          // Then filter for the selected season
+          teacherLessons = teacherLessonsAll.filter(lesson => {
+            // Match by both id and _id to handle different formats
+            const isSelectedSeason = 
+              (lesson.seasonId === selectedSeason) || 
+              (lesson._id && lesson.seasonId === season._id) ||
+              (lesson.seasonName === season.name);
+            
+            return isSelectedSeason;
+          });
+          
+          console.log(`Filtered to ${teacherLessons.length} lessons for selected season: ${season.name}`);
         }
       } catch (error) {
         console.error('Error fetching lessons for export:', error);
@@ -1298,7 +1313,7 @@ export default function TeacherDashboard() {
         <div className="fixed inset-0 z-50 flex items-center justify-center h-screen" style={{ backgroundColor: 'rgba(0, 0, 0, 0.5)' }}>
           <div className="relative max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg bg-white p-6 shadow-lg">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-xl font-semibold text-slate-800">Ders Detayları</h3>
+              <h3 className="text-xl font-semibold text-slate-800">Dərs Detalları</h3>
               <button
                 onClick={handleCloseDetails}
                 className="rounded-full p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition-colors"
