@@ -5,7 +5,8 @@ import {
   Leave,
   LeaveState,
   CreateLeaveRequest,
-  UpdateLeaveRequest
+  UpdateLeaveRequest,
+  Teacher
 } from '../types';
 
 // Error interface to handle axios errors
@@ -103,6 +104,68 @@ export const deleteLeave = createAsyncThunk<
   } catch (error: unknown) {
     const axiosError = error as AxiosError<ErrorResponse>;
     return rejectWithValue(axiosError.response?.data?.message || 'Mezuniyet kaydı silinirken bir hata oluştu');
+  }
+});
+
+// Check teacher leaves for a specific date
+export const checkTeacherLeaves = createAsyncThunk<
+  { hasLeave: boolean; teachersOnLeave?: string[]; message?: string },
+  { teacherIds: string[]; date: string },
+  { rejectValue: string }
+>('leaves/checkTeacherLeaves', async (params, { rejectWithValue, getState }) => {
+  try {
+    // Get all leaves from state
+    interface RootState {
+      leaves: LeaveState;
+      teachers: { teachers: Teacher[] };
+    }
+    
+    const state = getState() as RootState;
+    const leaves = state.leaves.leaves || [];
+    const teachers = state.teachers.teachers || [];
+    
+    if (!params.teacherIds || params.teacherIds.length === 0) {
+      return { hasLeave: false };
+    }
+    
+    const date = new Date(params.date);
+    date.setHours(0, 0, 0, 0);  // Set to start of day for comparison
+    
+    // Find teachers who are on leave for this date
+    const teachersOnLeave = params.teacherIds.filter(teacherId => {
+      return leaves.some((leave: Leave) => {
+        if (leave.teacherId !== teacherId) return false;
+        
+        const startDate = new Date(leave.startDate);
+        const endDate = new Date(leave.endDate);
+        
+        // Set to start of day for comparison
+        startDate.setHours(0, 0, 0, 0);
+        endDate.setHours(0, 0, 0, 0);
+        
+        // Check if date falls within leave period
+        return date >= startDate && date <= endDate;
+      });
+    });
+    
+    if (teachersOnLeave.length > 0) {
+      // Get names of teachers on leave
+      const teacherNames = teachersOnLeave.map(id => {
+        const teacher = teachers.find((t: Teacher) => t.id === id || t._id === id);
+        return teacher ? `${teacher.firstName || ''} ${teacher.lastName || ''}`.trim() : `ID: ${id}`;
+      });
+      
+      return {
+        hasLeave: true,
+        teachersOnLeave: teacherNames,
+        message: `Bu tarixdə bəzi müəllimlər məzuniyyətdədir: ${teacherNames.join(', ')}`
+      };
+    }
+    
+    return { hasLeave: false };
+  } catch (error: unknown) {
+    console.error('Error checking teacher leaves:', error);
+    return rejectWithValue('Müəllim məzuniyyət durumu yoxlanarkən xəta baş verdi');
   }
 });
 

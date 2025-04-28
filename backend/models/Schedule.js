@@ -3,10 +3,15 @@ const Schema = mongoose.Schema;
 
 const scheduleSchema = new Schema({
   // İlişkiler
-  teacherId: {
+  teacherIds: {
+    type: [mongoose.Schema.Types.ObjectId],
+    ref: 'User',
+    required: [true, 'Ən azı bir müəllim seçimi vacibdir']
+  },
+  primaryTeacherId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: [true, 'Müəllim seçimi vacibdir']
+    required: [true, 'Bir əsas müəllim seçimi vacibdir']
   },
   locationId: {
     type: mongoose.Schema.Types.ObjectId,
@@ -61,9 +66,9 @@ const scheduleSchema = new Schema({
   }
 }, { timestamps: true });
 
-// Sadece öğretmen çakışmalarını kontrol edecek statik metod
+// Çoklu öğretmen çakışmalarını kontrol edecek statik metod
 scheduleSchema.statics.checkConflicts = async function (scheduleData, excludeId = null) {
-  const { teacherId, date, startTime, endTime } = scheduleData;
+  const { teacherIds, date, startTime, endTime } = scheduleData;
 
   // Tarih kontrolü için başlangıç ve bitiş
   const scheduleDate = new Date(date);
@@ -92,22 +97,31 @@ scheduleSchema.statics.checkConflicts = async function (scheduleData, excludeId 
     baseQuery._id = { $ne: excludeId };
   }
 
-  // Öğretmen çakışması kontrolü
-  const teacherConflict = await this.findOne({
-    ...baseQuery,
-    teacherId
-  });
+  // Her bir öğretmen için çakışma kontrolü
+  const conflicts = [];
 
-  if (teacherConflict) {
+  for (const teacherId of teacherIds) {
+    // Öğretmen çakışması kontrolü
+    const teacherConflict = await this.findOne({
+      ...baseQuery,
+      teacherIds: teacherId
+    });
+
+    if (teacherConflict) {
+      conflicts.push({
+        teacherId,
+        conflict: teacherConflict
+      });
+    }
+  }
+
+  if (conflicts.length > 0) {
     return {
       hasConflict: true,
       type: 'teacher',
-      conflictingId: teacherConflict._id
+      conflicts
     };
   }
-
-  // Konum çakışma kontrolü kaldırıldı - artık aynı yerde ve aynı saatte
-  // farklı öğretmenlerle ders planlanabilir
 
   // Çakışma yok
   return { hasConflict: false };

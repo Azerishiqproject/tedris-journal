@@ -1,5 +1,7 @@
 {
   "dependencies": {
+    "@material-tailwind/react": "^2.1.10",
+    "react-select": "^5.10.1",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

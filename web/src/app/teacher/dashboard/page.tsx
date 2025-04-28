@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { User as UserIcon, Calendar, MapPin, Clock, BookOpen, GraduationCap, Mail, ChevronLeft, ChevronRight, Loader, Download } from 'lucide-react';
+import { User as UserIcon, Calendar, MapPin, Clock, BookOpen, GraduationCap, Mail, ChevronLeft, ChevronRight, Loader, Download, User } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useAppSelector, useAppDispatch } from '@/redux/hooks';
 import { fetchSchedules } from '@/redux/slices/scheduleSlice';
@@ -18,7 +18,9 @@ import * as XLSX from 'xlsx';
 interface Lesson {
   id: string;
   _id?: string;
-  teacherId: string;
+  teacherId?: string;
+  teacherIds?: Array<string | { id: string; _id?: string; name?: string; email?: string; }>;
+  primaryTeacherId?: string;
   courseId?: string;
   courseName?: string;
   locationId: string;
@@ -173,9 +175,36 @@ const calculateLeaveProgress = (startDate: Date, endDate: Date) => {
 };
 
 // Helper function to check teacher ID match
-const isTeacherMatch = (teacherId: string, user: User | null) => {
+const isTeacherMatch = (lesson: Schedule | Lesson, user: User | null) => {
   if (!user) return false;
-  return teacherId === user.id || teacherId === user._id;
+  
+  const userId = user.id || user._id;
+  
+  // Check if teacher is in teacherIds array
+  if (Array.isArray(lesson.teacherIds)) {
+    return lesson.teacherIds.some(teacher => {
+      if (typeof teacher === 'string') {
+        return teacher === userId;
+      } else if (typeof teacher === 'object' && teacher !== null) {
+        // Handle both formats - object with id or _id property
+        const teacherId = teacher.id || (teacher as { _id?: string })._id;
+        return teacherId === userId;
+      }
+      return false;
+    });
+  }
+  
+  // Check primaryTeacherId as fallback
+  if (lesson.primaryTeacherId) {
+    return lesson.primaryTeacherId === userId;
+  }
+  
+  // Legacy support for old teacherId property
+  if ('teacherId' in lesson && lesson.teacherId) {
+    return lesson.teacherId === userId;
+  }
+  
+  return false;
 };
 
 
@@ -261,7 +290,6 @@ export default function TeacherDashboard() {
       try {
         const fetchCompletedLessons = async () => {
           try {
-            
             // Direkt tamamlanmış dersleri çekmek yerine, tüm dersleri çekip filtreleme yapıyoruz
             // /schedules/completed endpoint'i 400 hatası veriyor
             try {
@@ -269,10 +297,20 @@ export default function TeacherDashboard() {
               const lessonsResponse = await api.get<{ schedules: Lesson[] }>('/schedules');
               
               if (lessonsResponse.data && lessonsResponse.data.schedules) {
+                // Only log in development
+                if (process.env.NODE_ENV === 'development') {
+                  console.log(`Total lessons from API: ${lessonsResponse.data.schedules.length}`);
+                }
+                
                 // Önce öğretmenin derslerini filtrele
                 const teacherLessons = lessonsResponse.data.schedules.filter(
-                  lesson => isTeacherMatch(lesson.teacherId, user)
+                  lesson => isTeacherMatch(lesson, user)
                 );
+                
+                // Only log in development
+                if (process.env.NODE_ENV === 'development') {
+                  console.log(`Filtered lessons for teacher ID ${user.id}: ${teacherLessons.length}`);
+                }
                 
                 // Sonra tamamlanmış dersleri filtrele (isChecked = true olanlar)
                 const completedLessons = teacherLessons
@@ -379,8 +417,40 @@ export default function TeacherDashboard() {
       
       const loadData = async () => {
         try {
-          
+          // Fetch all schedules for the week
           await dispatch(fetchSchedules(weekDateParams));
+          
+          // If the redux store doesn't have enough lessons for the teacher,
+          // try a direct API call as backup
+          const reduxSchedules = schedules.filter(lesson => isTeacherMatch(lesson, user));
+          console.log(`Redux store has ${reduxSchedules.length} lessons for this teacher`);
+          
+          // If redux has very few lessons, try direct API call
+          if (reduxSchedules.length === 0) {
+            try {
+              console.log('Trying direct API call for schedules...');
+              const response = await api.get<{ schedules: Lesson[] }>(`/schedules`, {
+                params: weekDateParams
+              });
+              
+              if (response.data && response.data.schedules) {
+                // Log all schedules to debug
+                console.log(`API returned ${response.data.schedules.length} total schedules`);
+                
+                // Filter for current teacher and log
+                const teacherSchedules = response.data.schedules.filter(
+                  schedule => isTeacherMatch(schedule, user)
+                );
+                console.log(`Found ${teacherSchedules.length} teacher schedules from direct API call`);
+                
+                // Add these schedules manually to the existing schedules
+                // Note: This is just for debugging, scheduleSlice would need 
+                // to be updated to properly handle this
+              }
+            } catch (apiError) {
+              console.error('Error with direct API call:', apiError);
+            }
+          }
           
           if (locations.length === 0) await dispatch(fetchLocations());
           if (courseTypes.length === 0) await dispatch(fetchCourseTypes());
@@ -408,7 +478,7 @@ export default function TeacherDashboard() {
           
           if (response.data && response.data.schedules) {
             const teacherMonthlyLessons = response.data.schedules.filter((lesson: Lesson) => 
-              isTeacherMatch(lesson.teacherId, user)
+              isTeacherMatch(lesson, user)
             );
             setMonthlyLessons(teacherMonthlyLessons);
           }
@@ -522,9 +592,24 @@ export default function TeacherDashboard() {
   
   // Filter teacher's lessons - we only get lessons for the current week now
   const teacherLessons = useMemo(() => {
-    return schedules.filter(lesson => 
-      isTeacherMatch(lesson.teacherId, user)
-    );
+    if (!schedules || !user) return [];
+    
+    // Only log in development to avoid console spam
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`Filtering lessons for teacher ID ${user.id} from ${schedules.length} total lessons`);
+      
+      // Debug some samples of the lessons to see their structure
+      if (schedules.length > 0) {
+        const sampleLesson = schedules[0];
+        console.log('Sample lesson structure:', {
+          id: sampleLesson.id,
+          teacherIds: sampleLesson.teacherIds?.length || 0,
+          primaryTeacherId: sampleLesson.primaryTeacherId
+        });
+      }
+    }
+    
+    return schedules.filter(lesson => isTeacherMatch(lesson, user));
   }, [schedules, user]);
   
   // Since we're already fetching weekly data, we can use teacherLessons as currentWeekLessons
@@ -612,31 +697,31 @@ export default function TeacherDashboard() {
       
       // API çağrısı başarılı olduysa, yerel durumu güncelle
       if (response.data && response.data.schedule) {
-        // Update local state
-        setCompletedLessons(prev => {
-          const newSet = new Set(prev);
-          if (isCompleted) {
-            newSet.add(lessonId);
-          } else {
-            newSet.delete(lessonId);
-          }
-          
-          // Also update localStorage as a backup
-          if (user?.id) {
-            try {
-              localStorage.setItem(`completedLessons_${user.id}`, JSON.stringify([...newSet]));
-            } catch (error: unknown) {
-              console.error('Error saving completed lessons to localStorage:', error);
-            }
-          }
-          
-          return newSet;
-        });
+      // Update local state
+      setCompletedLessons(prev => {
+        const newSet = new Set(prev);
+        if (isCompleted) {
+          newSet.add(lessonId);
+        } else {
+          newSet.delete(lessonId);
+        }
         
-        showSnackbar(
-          isCompleted ? 'Dərs uğurla tamamlandı!' : 'Dərs tamamlanmamış kimi işarələndi.',
-          'success'
-        );
+        // Also update localStorage as a backup
+        if (user?.id) {
+          try {
+            localStorage.setItem(`completedLessons_${user.id}`, JSON.stringify([...newSet]));
+          } catch (error: unknown) {
+            console.error('Error saving completed lessons to localStorage:', error);
+          }
+        }
+        
+        return newSet;
+      });
+      
+      showSnackbar(
+        isCompleted ? 'Dərs uğurla tamamlandı!' : 'Dərs tamamlanmamış kimi işarələndi.',
+        'success'
+      );
       } else {
         throw new Error('API yanıtında beklenen veri bulunamadı');
       }
@@ -699,7 +784,7 @@ export default function TeacherDashboard() {
         if (response.data && response.data.schedules) {
           // First filter for the current teacher
           const teacherLessonsAll = response.data.schedules.filter(lesson => 
-            isTeacherMatch(lesson.teacherId, user)
+            isTeacherMatch(lesson, user)
           );
           
           console.log(`Found ${teacherLessonsAll.length} total lessons for this teacher`);
@@ -1378,6 +1463,27 @@ export default function TeacherDashboard() {
                     <span className="text-sm font-medium text-gray-800">{selectedLesson.seasonName || 'Kurs seçilməyib'}</span>
                   </div>
                 </div>
+                
+                {/* Müəllimlər - Full width if multiple teachers */}
+                {Array.isArray(selectedLesson.teacherIds) && selectedLesson.teacherIds.length > 0 && (
+                  <div className="bg-white rounded-md p-3 shadow-sm">
+                    <div className="text-xs font-medium uppercase text-gray-500 mb-1">Müəllimlər</div>
+                    <div className="flex flex-col gap-1">
+                      {selectedLesson.teacherIds.map((teacher, index) => {
+                        const teacherName = typeof teacher === 'object' && teacher !== null 
+                          ? teacher.name 
+                          : `Müəllim ${index + 1}`;
+                        
+                        return (
+                          <div key={index} className="flex items-center">
+                            <User className="mr-2 h-4 w-4 text-gray-500" />
+                            <span className="text-sm font-medium text-gray-800">{teacherName}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
                 
                 {/* Yer and Dərs Tipi - Two columns */}
                 <div className="grid grid-cols-2 gap-4">

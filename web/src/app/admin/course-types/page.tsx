@@ -165,7 +165,7 @@ export default function CourseTypesPage() {
         
         // Silme işlemi sonrası ders tiplerini yeniden çek
         await dispatch(fetchCourseTypes(activeTab));
-        showSnackbar('Dərs tipi başarıyla silindi.', 'delete');
+        showSnackbar('Dərs tipi ugurla silindi.', 'delete');
       } catch (err: unknown) {
         // Error handling is managed by Redux
         console.error('Failed to delete course type:', err);
@@ -287,7 +287,7 @@ export default function CourseTypesPage() {
                 className="rounded-lg border border-gray-300 px-4 py-2 text-gray-700 hover:bg-gray-50"
                 disabled={isLoading}
               >
-                İptal
+                Ləğv Et
               </button>
               <button
                 type="submit"

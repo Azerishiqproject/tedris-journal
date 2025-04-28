@@ -127,7 +127,7 @@ export default function LocationsPage() {
         setFormData(emptyForm);
         setShowForm(false);
         setEditingId(null);
-        showSnackbar('Dərs yeri başarıyla güncellendi.');
+        showSnackbar('Dərs yeri ugurla güncellendi.');
       } else {
         // Add new location
         await dispatch(createLocation(formData)).unwrap();
@@ -165,7 +165,7 @@ export default function LocationsPage() {
         
         // Silme işlemi sonrası lokasyonları yeniden çek
         await dispatch(fetchLocations(activeTab));
-        showSnackbar('Dərs yeri başarıyla silindi.', 'delete');
+        showSnackbar('Dərs yeri ugurla silindi.', 'delete');
       } catch (err: unknown) {
         // Error handling is managed by Redux
         console.error('Failed to delete location:', err);
@@ -288,7 +288,7 @@ export default function LocationsPage() {
                 className="rounded-lg border border-gray-300 px-4 py-2 text-gray-700 hover:bg-gray-50"
                 disabled={isLoading}
               >
-                İptal
+                Ləğv Et
               </button>
               <button
                 type="submit"

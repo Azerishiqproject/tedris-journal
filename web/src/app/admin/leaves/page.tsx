@@ -96,6 +96,21 @@ export default function LeavesPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   
+  // Utility functions that need access to teachers and leaves
+  
+  // Get teacher name function
+  const getTeacherName = (teacherId: string) => {
+    const teacher = teachers.find(t => t.id === teacherId || t._id === teacherId);
+    if (teacher) {
+      return `${teacher.firstName || ''} ${teacher.lastName || ''}`.trim();
+    }
+    return 'Bilinməyən Müəllim';
+  };
+  
+
+  
+ 
+  
   // Snackbar state
   const [snackbar, setSnackbar] = useState<{
     open: boolean;
@@ -254,12 +269,6 @@ export default function LeavesPage() {
     return teacherName.toLowerCase().includes(searchTerm.toLowerCase());
   });
   
-  // Get teacher name by ID
-  const getTeacherName = (teacherId: string) => {
-    const teacher = teachers.find(t => t.id === teacherId || t._id === teacherId);
-        return teacher ? `${teacher.firstName} ${teacher.lastName}` : 'Bilinməyən Müəllim';
-  };
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">

@@ -205,9 +205,9 @@ export interface UpdateLeaveRequest {
 // Schedule types
 export interface Schedule {
   id: string;
-  teacherId: string;
-  teacherName: string;
-  teacherEmail?: string;
+  teacherIds: Array<{id: string, name: string, email?: string}>;
+  primaryTeacherId: string;
+  primaryTeacherName: string;
   locationId: string;
   locationName: string;
   courseTypeId: string;
@@ -218,6 +218,7 @@ export interface Schedule {
   startTime: string;
   endTime: string;
   subject: string;
+  isChecked?: boolean;
   createdAt?: string;
   updatedAt?: string;
 }

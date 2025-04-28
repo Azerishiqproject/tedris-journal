@@ -154,7 +154,7 @@ export default function UsersPage() {
         
         // Güncelleme sonrası öğretmenleri yeniden çek
         await dispatch(fetchTeachers(activeTab));
-        showSnackbar(`${formData.firstName} ${formData.lastName} başarıyla güncellendi.`, 'success');
+        showSnackbar(`${formData.firstName} ${formData.lastName} ugurla güncellendi.`, 'success');
       } else {
         // Add new teacher
         await dispatch(createTeacher(formData)).unwrap();
@@ -383,7 +383,7 @@ export default function UsersPage() {
                 className="rounded-lg border border-gray-300 px-4 py-2 text-gray-700 hover:bg-gray-50"
                 disabled={isLoading}
               >
-                İptal
+                Ləğv Et
               </button>
               <button
                 type="submit"

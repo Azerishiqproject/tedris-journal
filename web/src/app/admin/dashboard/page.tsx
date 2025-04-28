@@ -40,6 +40,9 @@ const StatCard = ({ title, value, icon, color, isLoading = false }: StatCardProp
   </div>
 );
 
+// Define a proper type for teacherId
+type TeacherId = string | { id: string; name?: string; email?: string };
+
 export default function DashboardPage() {
   const router = useRouter();
   const dispatch = useAppDispatch();
@@ -102,33 +105,19 @@ export default function DashboardPage() {
 
  
 
-  // Yaklaşan dersleri hesapla (bugün ve sonraki 5 gün)
+  // Get upcoming lessons for the next 7 days
   const getUpcomingLessons = () => {
     const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    
-    const fiveDaysLater = new Date(today);
-    fiveDaysLater.setDate(today.getDate() + 5);
-    fiveDaysLater.setHours(23, 59, 59, 999);
+    const nextWeek = new Date(today);
+    nextWeek.setDate(today.getDate() + 7);
     
     return schedules
-      .filter(lesson => {
-        const lessonDate = new Date(lesson.date);
-        return lessonDate >= today && lessonDate <= fiveDaysLater;
+      .filter(schedule => {
+        const lessonDate = new Date(schedule.date);
+        return lessonDate >= today && lessonDate <= nextWeek;
       })
-      .sort((a, b) => {
-        // Tarihe göre sırala
-        const dateA = new Date(a.date);
-        const dateB = new Date(b.date);
-        
-        if (dateA.getTime() !== dateB.getTime()) {
-          return dateA.getTime() - dateB.getTime();
-        }
-        
-        // Aynı günse saate göre sırala
-        return a.startTime.localeCompare(b.startTime);
-      })
-      .slice(0, 5); // İlk 5 dersi göster
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+      .slice(0, 5);
   };
 
   // İstatistik kartları
@@ -156,13 +145,29 @@ export default function DashboardPage() {
   // Yaklaşan dersler
   const upcomingLessons = getUpcomingLessons();
 
-  // Öğretmen adını bul
-  const getTeacherName = (teacherId: string): string => {
-    const teacher = teachers.find(t => t.id === teacherId || t._id === teacherId);
-    if (teacher) {
-      return `${teacher.firstName || ''} ${teacher.lastName || ''}`.trim();
-    }
-    return 'Belirtilmemiş';
+  // Update getTeacherName function with proper type handling
+  const getTeacherName = (teacherIds: TeacherId[]): string => {
+    if (!Array.isArray(teacherIds) || teacherIds.length === 0) return "Belirtilmemiş";
+
+    return teacherIds
+      .map(teacherId => {
+        // Handle case where teacherId is an object
+        if (typeof teacherId === 'object' && teacherId !== null) {
+          if (teacherId.name) return teacherId.name;
+          if (teacherId.id) {
+            const teacher = teachers.find(t => t.id === teacherId.id || t._id === teacherId.id);
+            if (teacher) return `${teacher.firstName || ''} ${teacher.lastName || ''}`.trim();
+          }
+        }
+        // Handle case where teacherId is a string
+        if (typeof teacherId === 'string') {
+          const teacher = teachers.find(t => t.id === teacherId || t._id === teacherId);
+          if (teacher) return `${teacher.firstName || ''} ${teacher.lastName || ''}`.trim();
+        }
+        return '';
+      })
+      .filter(name => name) // Remove empty strings
+      .join("\n") || "Belirtilmemiş"; // Use newline instead of comma
   };
 
   // Konum adını bul
@@ -246,7 +251,7 @@ export default function DashboardPage() {
       
       // Find exam date (if any)
       const examLessons = seasonLessons.filter(lesson => 
-        lesson.subject && lesson.subject.toLowerCase().includes('imtahan')
+        lesson.subject && lesson.subject.toLowerCase().includes('exam')
       );
       
       let examDateStr = '';
@@ -325,7 +330,7 @@ export default function DashboardPage() {
         
         // Process each lesson for this date
         lessons.forEach((lesson, index) => {
-          const teacherName = getTeacherName(lesson.teacherId);
+          const teacherName = getTeacherName(lesson.teacherIds);
           
           // Format time range as HH:MM-HH:MM
           const formattedTime = `${lesson.startTime}-${lesson.endTime}`;
@@ -429,19 +434,21 @@ export default function DashboardPage() {
         return;
       }
       
-      // Filter lessons for this season and teacher
-      const teacherLessons = schedules.filter(lesson => 
-        (lesson.seasonId === selectedSeason || lesson.seasonId === season._id) && 
-        (lesson.teacherId === selectedTeacher || lesson.teacherId === teacher._id)
+      // Update schedule filtering with proper type handling
+      const teacherSchedules = schedules.filter(schedule => 
+        schedule.teacherIds.some(teacherId => 
+          teacherId.id === selectedTeacher || 
+          (teacher && (teacherId.id === teacher._id || teacherId.id === teacher.id))
+        )
       );
       
-      if (teacherLessons.length === 0) {
+      if (teacherSchedules.length === 0) {
         showSnackbar("Seçilmiş kurs və müəllim üçün dərs tapılmadı", "error");
         return;
       }
       
       // Sort by date
-      teacherLessons.sort((a, b) => {
+      teacherSchedules.sort((a, b) => {
         const dateA = new Date(a.date);
         const dateB = new Date(b.date);
         if (dateA.getTime() !== dateB.getTime()) {
@@ -493,8 +500,8 @@ export default function DashboardPage() {
       }
       
       // Group lessons by date
-      const lessonsByDate: Record<string, typeof teacherLessons> = {};
-      teacherLessons.forEach(lesson => {
+      const lessonsByDate: Record<string, typeof teacherSchedules> = {};
+      teacherSchedules.forEach(lesson => {
         const dateStr = new Date(lesson.date).toISOString().split('T')[0];
         if (!lessonsByDate[dateStr]) {
           lessonsByDate[dateStr] = [];
@@ -777,7 +784,7 @@ export default function DashboardPage() {
                   <div>
                     <p className="font-medium text-gray-800">{lesson.subject || 'Mövzu belirtilmemiş'}</p>
                     <p className="text-sm text-gray-600">
-                      {lesson.teacherName || getTeacherName(lesson.teacherId)}
+                      {getTeacherName(lesson.teacherIds)}
                     </p>
                     <p className="text-xs text-blue-700 mt-1">{formatDate(lesson.date)}</p>
                   </div>

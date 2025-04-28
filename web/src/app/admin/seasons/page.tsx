@@ -356,7 +356,7 @@ export default function SeasonsPage() {
                 className="rounded-lg border border-gray-300 px-4 py-2 text-gray-700 hover:bg-gray-50"
                 disabled={isLoading}
               >
-                İptal
+                Ləğv Et
               </button>
               <button
                 type="submit"
