@@ -161,9 +161,9 @@ export default function DashboardPage() {
         }
         // Handle case where teacherId is a string
         if (typeof teacherId === 'string') {
-          const teacher = teachers.find(t => t.id === teacherId || t._id === teacherId);
+    const teacher = teachers.find(t => t.id === teacherId || t._id === teacherId);
           if (teacher) return `${teacher.firstName || ''} ${teacher.lastName || ''}`.trim();
-        }
+    }
         return '';
       })
       .filter(name => name) // Remove empty strings

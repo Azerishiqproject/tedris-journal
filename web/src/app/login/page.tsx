@@ -1,23 +1,29 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Mail, Lock, LogIn, AlertCircle } from 'lucide-react';
 import { useDispatch } from 'react-redux';
 import { setCredentials } from '@/redux/slices/authSlice';
-import api from '@/services/api';
+import api, { setupTokenRefreshInterval } from '@/services/api';
 
-// API URL
-
-export default function Login() {
+// Suspense ile sarılmış arama parametreleri komponenti
+function LoginWithSearchParams() {
   const router = useRouter();
   const dispatch = useDispatch();
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-
+  // Check for session expired parameter
+  useEffect(() => {
+    const sessionExpired = searchParams.get('session') === 'expired';
+    if (sessionExpired) {
+      setError('Oturumunuz sona erdi. Lütfen tekrar giriş yapın.');
+    }
+  }, [searchParams]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,8 +38,8 @@ export default function Login() {
       // API client automatically parses JSON
       const data = response.data;
       
-      // Extract user data and token
-      const { user, token } = data;
+      // Extract user data and tokens
+      const { user, token, refreshToken } = data;
       
       if (!user || !token) {
         throw new Error('Invalid response from server');
@@ -46,6 +52,14 @@ export default function Login() {
       // Store in localStorage for persistence
       localStorage.setItem('user', JSON.stringify(user));
       localStorage.setItem('token', token);
+      
+      // Also store refreshToken if available
+      if (refreshToken) {
+        localStorage.setItem('refreshToken', refreshToken);
+      }
+      
+      // Set up token refresh interval
+      setupTokenRefreshInterval();
       
       // Redirect based on role
       if (user.role === 'admin') {
@@ -122,8 +136,6 @@ export default function Login() {
             </div>
           </div>
           
-          
-          
           <div>
             <button
               type="submit"
@@ -156,5 +168,23 @@ export default function Login() {
         </div>
       </div>
     </div>
+  );
+}
+
+// Ana login komponenti
+export default function Login() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">
+        <div className="bg-white p-8 rounded-xl shadow-xl w-full max-w-md border border-gray-100">
+          <div className="text-center">
+            <h1 className="text-3xl font-bold text-blue-600">Tedris Jurnal</h1>
+            <p className="text-gray-600 mt-2">Yükleniyor...</p>
+          </div>
+        </div>
+      </div>
+    }>
+      <LoginWithSearchParams />
+    </Suspense>
   );
 } 

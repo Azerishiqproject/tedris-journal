@@ -114,7 +114,7 @@ export const createSchedule = createAsyncThunk<
   { schedule: Schedule; message: string },
   CreateScheduleRequest,
   { rejectValue: string }
->('schedules/createSchedule', async (scheduleData, { rejectWithValue, dispatch }) => {
+>('schedules/createSchedule', async (scheduleData, { rejectWithValue }) => {
   try {
     // Log the schedule data being sent to API for debugging
     console.log('Creating schedule with data:', JSON.stringify(scheduleData, null, 2));
@@ -139,18 +139,7 @@ export const createSchedule = createAsyncThunk<
     // Log the response for debugging
     console.log('Schedule created successfully:', response.data);
     
-    // Try to refetch schedules, but don't wait for it to complete
-    // This prevents the createSchedule from failing if fetchSchedules fails
-    try {
-      dispatch(fetchSchedules({
-        startDate: scheduleData.date,
-        endDate: scheduleData.date
-      }));
-    } catch (fetchError) {
-      console.error('Error fetching schedules after create:', fetchError);
-      // Don't let this error affect the create operation
-    }
-    
+    // Return the response first to update the UI quickly
     return response.data;
   } catch (error: unknown) {
     console.error('Error creating schedule:', error);
@@ -409,7 +398,22 @@ const scheduleSlice = createSlice({
       })
       .addCase(createSchedule.fulfilled, (state, action) => {
         state.isLoading = false;
-        state.schedules.push(action.payload.schedule);
+        
+        // Ensure we're not adding duplicates
+        const existingIndex = state.schedules.findIndex(schedule => 
+          schedule.id === action.payload.schedule.id
+        );
+        
+        if (existingIndex >= 0) {
+          // Update existing schedule if it's already in the array
+          state.schedules[existingIndex] = action.payload.schedule;
+        } else {
+          // Add the new schedule to the array
+          state.schedules.push(action.payload.schedule);
+        }
+        
+        // Update current schedule reference
+        state.currentSchedule = action.payload.schedule;
       })
       .addCase(createSchedule.rejected, (state, action) => {
         state.isLoading = false;
@@ -441,13 +445,26 @@ const scheduleSlice = createSlice({
       })
       .addCase(updateSchedule.fulfilled, (state, action) => {
         state.isLoading = false;
-        const index = state.schedules.findIndex(
-          schedule => schedule.id === action.payload.schedule.id
-        );
-        if (index !== -1) {
-          state.schedules[index] = action.payload.schedule;
+        
+        if (action.payload && action.payload.schedule && action.payload.schedule.id) {
+          const index = state.schedules.findIndex(
+            schedule => schedule.id === action.payload.schedule.id
+          );
+          
+          if (index !== -1) {
+            // Update existing schedule
+            state.schedules[index] = {
+              ...state.schedules[index],
+              ...action.payload.schedule
+            };
+          } else {
+            // If not found, add it to the array
+            state.schedules.push(action.payload.schedule);
+          }
+          
+          // Update current schedule reference
+          state.currentSchedule = action.payload.schedule;
         }
-        state.currentSchedule = action.payload.schedule;
       })
       .addCase(updateSchedule.rejected, (state, action) => {
         state.isLoading = false;
@@ -478,11 +495,17 @@ const scheduleSlice = createSlice({
       })
       .addCase(deleteSchedule.fulfilled, (state, action) => {
         state.isLoading = false;
-        state.schedules = state.schedules.filter(
-          schedule => schedule.id !== action.payload.id
-        );
-        if (state.currentSchedule?.id === action.payload.id) {
-          state.currentSchedule = null;
+        
+        // Safely filter out the deleted schedule
+        if (action.payload && action.payload.id) {
+          state.schedules = state.schedules.filter(
+            schedule => schedule.id !== action.payload.id
+          );
+          
+          // Clear currentSchedule if it was the deleted one
+          if (state.currentSchedule?.id === action.payload.id) {
+            state.currentSchedule = null;
+          }
         }
       })
       .addCase(deleteSchedule.rejected, (state, action) => {

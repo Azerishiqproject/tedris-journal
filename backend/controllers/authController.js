@@ -17,10 +17,18 @@ const generateToken = (user) => {
     const token = jwt.sign(
       { id: userId, email: user.email, role: user.role },
       secret,
-      { expiresIn: '7d' }
+      { expiresIn: '1d' } // Expire in 1 day instead of 7d for more security
     );
-    console.log('Token generated successfully');
-    return token;
+
+    // Generate refresh token with longer expiry
+    const refreshToken = jwt.sign(
+      { id: userId, tokenVersion: Date.now() }, // Add token version for invalidation if needed
+      secret,
+      { expiresIn: '7d' } // Refresh token lasts 7 days
+    );
+
+    console.log('Token and refresh token generated successfully');
+    return { token, refreshToken };
   } catch (error) {
     console.error('Token generation error:', error);
     throw error;
@@ -51,8 +59,8 @@ exports.register = async (req, res) => {
 
     await user.save();
 
-    // Generate token
-    const token = generateToken(user);
+    // Generate tokens
+    const { token, refreshToken } = generateToken(user);
 
     // Return user data without password
     const userData = {
@@ -68,7 +76,8 @@ exports.register = async (req, res) => {
     res.status(201).json({
       message: 'Kullanıcı başarıyla oluşturuldu.',
       user: userData,
-      token
+      token,
+      refreshToken
     });
   } catch (error) {
     console.error('Register error:', error);
@@ -108,8 +117,8 @@ exports.login = async (req, res) => {
       return res.status(401).json({ message: 'Geçersiz email veya şifre.' });
     }
 
-    // Generate token
-    const token = generateToken(user);
+    // Generate tokens
+    const { token, refreshToken } = generateToken(user);
 
     // Return user data without password
     const userData = {
@@ -124,10 +133,59 @@ exports.login = async (req, res) => {
 
     console.log('Login successful for user:', userData.email);
 
-    res.json({ user: userData, token });
+    res.json({ user: userData, token, refreshToken });
   } catch (error) {
     console.error('Login error details:', error);
     res.status(500).json({ message: 'Sunucu hatası.', error: error.message });
+  }
+};
+
+// Refresh token endpoint
+exports.refreshToken = async (req, res) => {
+  try {
+    const { refreshToken } = req.body;
+
+    if (!refreshToken) {
+      return res.status(400).json({ message: 'Refresh token gereklidir.' });
+    }
+
+    // Verify refresh token
+    const secret = process.env.JWT_SECRET || 'fallback_jwt_secret_for_development';
+    const decoded = jwt.verify(refreshToken, secret);
+
+    // Get user from database
+    const user = await User.findById(decoded.id).select('-password');
+
+    if (!user) {
+      return res.status(404).json({ message: 'Kullanıcı bulunamadı.' });
+    }
+
+    // Generate new tokens
+    const tokens = generateToken(user);
+
+    // Return new tokens
+    res.json({
+      token: tokens.token,
+      refreshToken: tokens.refreshToken,
+      user: {
+        id: user._id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+        role: user.role,
+        specialty: user.specialty,
+        academicDegree: user.academicDegree
+      }
+    });
+  } catch (error) {
+    console.error('Token refresh error:', error);
+
+    // Check if error is due to token expiration
+    if (error.name === 'TokenExpiredError') {
+      return res.status(401).json({ message: 'Refresh token süresi dolmuş. Yeniden giriş yapın.' });
+    }
+
+    res.status(401).json({ message: 'Geçersiz refresh token.' });
   }
 };
 
@@ -140,7 +198,18 @@ exports.getCurrentUser = async (req, res) => {
       return res.status(404).json({ message: 'Kullanıcı bulunamadı.' });
     }
 
-    res.json({ user });
+    res.json({
+      user: {
+        id: user._id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+        role: user.role,
+        specialty: user.specialty,
+        academicDegree: user.academicDegree
+      },
+      token: req.header('Authorization')?.replace('Bearer ', '')
+    });
   } catch (error) {
     console.error('Get current user error:', error);
     res.status(500).json({ message: 'Sunucu hatası.' });

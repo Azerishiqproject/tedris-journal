@@ -516,7 +516,7 @@ export default function SchedulePage() {
       
       if (editingId) {
         await dispatch(updateSchedule({ id: editingId, scheduleData })).unwrap();
-        showSnackbar('Ders ugurla  güncellendi');
+        showSnackbar('Ders ugurla güncellendi');
       } else {
         await dispatch(createSchedule(scheduleData)).unwrap();
         showSnackbar('Ders ugurla oluşturuldu');
@@ -539,21 +539,18 @@ export default function SchedulePage() {
         // Update the week offset to show the correct week
         setCurrentWeekOffset(weekDiff);
         
-        // After changing the week, dateParams will update through useEffect
-        // and the schedules will be fetched automatically
+        // Use safe refresh with a short delay to ensure state updates first
+        setTimeout(() => {
+          safeRefreshSchedules();
+        }, 300);
         
         // Show an additional message to inform the user
         showSnackbar('Dərs əlavə edildi və müvafiq həftəyə keçid edildi', 'success');
         return;
       }
       
-      // If in current week, just reload schedule data
-      const currentWeekDates = getCurrentWeekDates(currentWeekOffset);
-      // Wait for the fetch to complete before continuing
-      await dispatch(fetchSchedules({
-        startDate: formatDateForAPI(currentWeekDates[0]),
-        endDate: formatDateForAPI(currentWeekDates[currentWeekDates.length - 1])
-      })).unwrap(); // Use unwrap to ensure the promise resolves
+      // If in current week, use safe refresh function instead of simple fetch
+      await safeRefreshSchedules();
       
     } catch (error) {
       console.error('Form submission error:', error);
@@ -618,10 +615,13 @@ export default function SchedulePage() {
   // Filter lessons for the current week view
   const currentWeekLessons = useMemo(() => {
     if (!schedules || !Array.isArray(schedules) || schedules.length === 0) {
+      console.log("No schedules available for filtering");
       return [];
     }
     
-    return schedules
+    console.log(`Filtering ${schedules.length} schedules for current week view`);
+    
+    const result = schedules
       .filter((schedule) => {
         if (!schedule || !schedule.date) return false;
         try {
@@ -632,7 +632,17 @@ export default function SchedulePage() {
         }
       })
       .map(schedule => scheduleToLesson(schedule));
+    
+    console.log(`Found ${result.length} lessons for current week`);
+    return result;
   }, [schedules, weekDates]);
+
+  // Debug: Log when schedules change
+  useEffect(() => {
+    if (Array.isArray(schedules)) {
+      console.log(`Schedule array updated with ${schedules.length} items`);
+    }
+  }, [schedules]);
 
   // Separate effect for initial data loading
   useEffect(() => {
@@ -650,7 +660,7 @@ export default function SchedulePage() {
       
       loadInitialData();
     }
-  }, [dispatch, isAuthenticated, user?.role]); // Only depend on auth state
+  }, [dispatch, isAuthenticated, user?.role, teachers.length, locations.length, courseTypes.length, seasons.length]); // Added dependency on collection lengths
 
   // Separate effect for schedule loading
   useEffect(() => {
@@ -673,6 +683,40 @@ export default function SchedulePage() {
     }
   }, [dispatch, isAuthenticated, user?.role, dateParams]); // Only depend on auth and date changes
 
+  // Safe schedule refresh function to ensure data is properly loaded
+  const safeRefreshSchedules = async () => {
+    if (!isAuthenticated || user?.role !== 'admin') return;
+    
+    const dates = getCurrentWeekDates(currentWeekOffset);
+    const params = {
+      startDate: formatDateForAPI(dates[0]),
+      endDate: formatDateForAPI(dates[6])
+    };
+    
+    console.log("Safe refresh schedules with params:", params);
+    
+    try {
+      // First attempt to load schedules
+      const result = await dispatch(fetchSchedules(params)).unwrap();
+      const fetchedSchedules = result?.schedules || [];
+      
+      // If no data or very few items returned, try again after a short delay
+      if (!fetchedSchedules.length) {
+        console.log("No schedules returned on first attempt, retrying...");
+        
+        // Wait a bit and try again
+        await new Promise(resolve => setTimeout(resolve, 500));
+        await dispatch(fetchSchedules(params)).unwrap();
+      }
+      
+      setConnectionIssue(false);
+    } catch (error) {
+      console.error("Safe refresh schedules error:", error);
+      setConnectionIssue(true);
+      showSnackbar('Dərs programı yüklənərkən xəta baş verdi...', 'error');
+    }
+  };
+
   // Handle delete
   const handleDelete = async (id: string) => {
     if (confirm('Bu dərsi programdan silmek istediğinize əminsiniz?')) {
@@ -680,8 +724,8 @@ export default function SchedulePage() {
         await dispatch(deleteSchedule(id)).unwrap();
         setSelectedLesson(null);
         
-        // Fetch the current week data after delete
-        dispatch(fetchSchedules(dateParams));
+        // Use safe refresh function instead of simple fetch
+        await safeRefreshSchedules();
         
         // Show success message
         showSnackbar("Dərs ugurla silindi", "success");
@@ -809,8 +853,8 @@ export default function SchedulePage() {
       const createResult = await dispatch(createSchedule(newScheduleData)).unwrap();
       console.log('Duplicate lesson created:', createResult);
       
-      // Now refresh the schedule data to show the new lesson
-      await dispatch(fetchSchedules(dateParams)).unwrap();
+      // Use safe refresh function instead of simple fetch
+      await safeRefreshSchedules();
       
       // Close the details modal if it's open
       setSelectedLesson(null);
